@@ -1,12 +1,6 @@
-# Root node: data audit + TPU/XLA probe + parity re-evaluation of public DetectionBench VisDrone checkpoints.
+# Fine-tune yolo11n from its official COCO checkpoint; evaluate with the unified evaluator.
 smoke: true
 data_root: /tmp/visdrone/data
-tasks: [data, tpu_probe, parity]
-splits: [valid, test]
-probe_rfdetr_xla: true
-probe_timeout_s: 1800
-parity:
-  - {name: db_yolo26n,     family: ultralytics, repo: dronefreak/visdrone-yolo26n,     file: best.pt,                   imgsz: [1280, 640]}
-  - {name: db_yolo11n,     family: ultralytics, repo: dronefreak/visdrone-yolo11n,     file: best.pt,                   imgsz: [1280, 640]}
-  - {name: db_yolov10n,    family: ultralytics, repo: dronefreak/visdrone-yolov10n,    file: best.pt,                   imgsz: [1280, 640]}
-  - {name: db_rfdetr_nano, family: rfdetr,      repo: dronefreak/visdrone-rfdetr-nano, file: checkpoint_best_total.pth, imgsz: [640, 1280]}
+tasks: [data, train]
+train: {model: yolo11n, epochs: 100, imgsz: 640, seeds: [0]}
+eval: {imgsz: [640, 1280], splits: [valid, test]}
