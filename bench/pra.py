@@ -5,6 +5,7 @@ An architecture is configured in configs/node.yaml as `train.arch`:
   pooled_first:  index of the first trunk conv that gets a 2x average-pool in front (RDD: trunk runs at 1/2 res)
   head_c3:       width of the Detect classification branch (default: Ultralytics rule)
   spd_layers:    shallow 3x3 stride-2 convs replaced by space-to-depth + 1x1 conv (lose COCO weights)
+  adown_layers:  stride-2 convs replaced by Ultralytics ADown (avg-pool + split 3x3-s2 / maxpool-1x1; lose COCO weights)
   stride_mult:   letterbox/grid multiple for the whole model (64 when the trunk is pooled)
   inherit:       {offset: k, max_src: L, detect_levels: [src level for each new Detect level]}
                  maps yolo26n.pt tensors model.{i} -> model.{i+k} for i <= L, and Detect level l' <- level src.
@@ -61,6 +62,14 @@ def surgery(model, arch: dict) -> None:
         assert isinstance(old, Conv) and old.conv.stride == (2, 2), (i, old)
         new = SPDConv(old.conv.in_channels, old.conv.out_channels)
         new.i, new.f, new.type = old.i, old.f, "bench.pra.SPDConv"
+        new.np = sum(p.numel() for p in new.parameters())
+        seq[i] = new
+    for i in arch.get("adown_layers", []):
+        from ultralytics.nn.modules.block import ADown
+        old = seq[i]
+        assert isinstance(old, Conv) and old.conv.stride == (2, 2), (i, old)
+        new = ADown(old.conv.in_channels, old.conv.out_channels)
+        new.i, new.f, new.type = old.i, old.f, "ultralytics.nn.modules.block.ADown"
         new.np = sum(p.numel() for p in new.parameters())
         seq[i] = new
     det = seq[-1]
