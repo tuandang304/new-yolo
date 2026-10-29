@@ -1,5 +1,5 @@
 # Fine-tune yolo26n from its official COCO checkpoint; evaluate with the unified evaluator.
-smoke: true
+smoke: false
 data_root: /tmp/visdrone/data
 tasks: [data, train]
 train: {model: yolo26n, epochs: 100, imgsz: 640, seeds: [0]}
