@@ -1,6 +1,6 @@
-# Fine-tune yolo26n from its official COCO checkpoint; evaluate with the unified evaluator.
+# R1 control: YOLO26n @640, 30 epochs
 smoke: false
 data_root: /tmp/visdrone/data
 tasks: [data, train]
-train: {model: yolo26n, epochs: 100, imgsz: 640, seeds: [0]}
-eval: {imgsz: [640, 1280], splits: [valid, test]}
+train: {model: yolo26n, epochs: 30, imgsz: 640, seeds: [0]}
+eval: {imgsz: [640], splits: [valid]}   # screening: val only (test-dev stays closed)
