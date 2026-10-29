@@ -1,10 +1,10 @@
-# R2-departure: P3-only detection @928, 30 epochs
+# Final candidate 2: P3-only detection @928, 100 epochs
 smoke: false
 data_root: /tmp/visdrone/data
 tasks: [data, train]
 train:
   model: pra_p3
-  epochs: 30
+  epochs: 100
   imgsz: 928
   seeds: [0]
   arch: {yaml: models/pra_p3.yaml, head_c3: 32, inherit: {offset: 0, max_src: 16, detect_levels: [0]}}
