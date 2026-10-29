@@ -1,6 +1,18 @@
-# Fine-tune yolo26n from its official COCO checkpoint; evaluate with the unified evaluator.
+# R2-departure: Glance-and-Zoom inference kill-test on a fixed checkpoint (no training), val only.
+# ckpt = round-1 YOLO26n @640 / 30-epoch best.pt (run 5c6973ed), copied into ckpts/ (5 MB).
 smoke: false
 data_root: /tmp/visdrone/data
-tasks: [data, train]
-train: {model: yolo26n, epochs: 100, imgsz: 640, seeds: [0]}
-eval: {imgsz: [640, 1280], splits: [valid, test]}
+tasks: [data, zoom]
+zoom:
+  ckpt: ckpts/yolo26n_r1_640_30ep.pt
+  split: valid
+  variants:
+    - {name: dense640,        glance: 640}
+    - {name: dense800,        glance: 800}
+    - {name: dense1024,       glance: 1024}
+    - {name: glance512,       glance: 512}
+    - {name: gz_score_w640,   glance: 512, K: 4, win: 640, crop: 320, mode: score}
+    - {name: gz_score_w480,   glance: 512, K: 4, win: 480, crop: 320, mode: score}
+    - {name: gz_score_K2_w800, glance: 512, K: 2, win: 800, crop: 448, mode: score}
+    - {name: gz_grid_w640,    glance: 512, K: 4, win: 640, crop: 320, mode: grid}
+    - {name: gz_oracle_w640,  glance: 512, K: 4, win: 640, crop: 320, mode: oracle}

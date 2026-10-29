@@ -166,6 +166,49 @@ def task_train(cfg: dict, root: Path, seed: int, gpu: int) -> dict:
     return res
 
 
+def task_zoom(cfg: dict, root: Path) -> list[dict]:
+    """Inference-only Glance-and-Zoom comparison on one checkpoint (val only)."""
+    import torch
+    from ultralytics import YOLO
+    from . import evaluate, zoom
+    from .efficiency import params_flops
+    z = cfg["zoom"]
+    device = "0" if torch.cuda.is_available() else "cpu"
+    torch.set_num_threads(os.cpu_count() or 4)
+    model = YOLO(z["ckpt"])
+    split = z.get("split", "valid")
+    gt = json.loads((root / f"coco_{split}.json").read_text())
+    ign = json.loads((root / f"ignore_{split}.json").read_text())
+    if z.get("limit"):
+        gt["images"] = gt["images"][: z["limit"]]
+        keep = {im["id"] for im in gt["images"]}
+        gt["annotations"] = [a for a in gt["annotations"] if a["image_id"] in keep]
+    gt_by_img: dict = {}
+    for a in gt["annotations"]:
+        gt_by_img.setdefault(a["image_id"], []).append(a["bbox"])
+    paths = [str(root / split / "images" / im["file_name"]) for im in gt["images"]]
+    ids = [im["id"] for im in gt["images"]]
+    fl = {}
+    def F(s):
+        if s not in fl:
+            fl[s] = params_flops(model.model, s)[f"GFLOPs@{s}"]
+        return fl[s]
+    outs = []
+    for v in z["variants"]:
+        t0 = time.time()
+        dets = zoom.run(model, paths, ids, v["glance"], v.get("K", 0), v.get("win", 0), v.get("crop", 0),
+                        v.get("mode", "none"), gt_by_img, device=device)
+        m = evaluate.coco_eval(gt, dets, ignore=ign)
+        gfl = F(v["glance"]) + v.get("K", 0) * (F(v["crop"]) if v.get("K") else 0)
+        row = {"name": v["name"], **v, "GFLOPs": round(gfl, 2), "sec": round(time.time() - t0, 1),
+               "ign_mAP50_95": m["mAP50_95"], "ign_mAP50": m["mAP50"], "AP_tiny": m["AP_tiny"],
+               "AP_small": m["AP_small"], "AP_medium": m["AP_medium"], "AP_large": m["AP_large"], "AR500": m["AR500"]}
+        log_result("zoom", row)
+        outs.append(row)
+    (OUT / "zoom_results.json").write_text(json.dumps(outs, indent=2))
+    return outs
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="configs/node.yaml")
@@ -194,6 +237,8 @@ def main() -> None:
             summary["tpu_probe"] = task_tpu_probe(cfg, root)
         elif task == "parity":
             summary["parity"] = task_parity(cfg, root)
+        elif task == "zoom":
+            summary["zoom"] = task_zoom(cfg, root)
         elif task == "train":
             seeds = [a.seed] if a.seed is not None else cfg["train"].get("seeds", [0])
             if len(seeds) == 1:
