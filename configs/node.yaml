@@ -1,11 +1,11 @@
-# R1 candidate: PRA-a @864, 30 epochs
+# R2: PRA-a + ADown(L1,3,5) @960, 30 epochs
 smoke: false
 data_root: /tmp/visdrone/data
 tasks: [data, train]
 train:
-  model: pra_a
+  model: pra_adown
   epochs: 30
-  imgsz: 864
+  imgsz: 960
   seeds: [0]
-  arch: {yaml: models/pra_a.yaml, head_c3: 32, inherit: {offset: 0, max_src: 19, detect_levels: [0, 1]}}
-eval: {imgsz: [864], splits: [valid]}   # screening: val only (test-dev stays closed)
+  arch: {yaml: models/pra_a.yaml, head_c3: 32, adown_layers: [1, 3, 5], inherit: {offset: 0, max_src: 19, detect_levels: [0, 1]}}
+eval: {imgsz: [960], splits: [valid]}   # val only (test-dev stays closed)
