@@ -1,6 +1,8 @@
 """Unified COCO-style evaluator for VisDrone (10 classes).
 
-Primary metric: AP@[.5:.95] with maxDets=300 over all areas. Also AP50, AP75, AP at maxDets=100,
+Primary metric (VisDrone policy): AP@[.5:.95] with maxDets=500 (the VisDrone toolkit limit) over all areas,
+computed after the ignore-region rule below (`ign_*` keys). Also AP50, AP75, AP at maxDets=100 (COCO default,
+comparable to COCO-style VisDrone papers),
 AP for tiny (<16^2 px), small (<32^2), medium, large, and per-class AP / AP50.
 `ignore=...` additionally drops detections AND ground-truth boxes whose area lies >50% inside a VisDrone
 ignore region (category 0 'ignored regions' and category 11 'others'), mirroring the official toolkit's
@@ -20,7 +22,7 @@ from .data import NAMES
 
 AREAS = {"all": [0, 1e10], "tiny": [0, 16 ** 2], "small": [0, 32 ** 2], "medium": [32 ** 2, 96 ** 2],
          "large": [96 ** 2, 1e10]}
-MAXDETS = [1, 10, 100, 300]
+MAXDETS = [1, 10, 100, 500]
 
 
 def _ioa(det: np.ndarray, regions: np.ndarray) -> np.ndarray:
@@ -67,12 +69,12 @@ def coco_eval(gt: dict, dets: list[dict], ignore: dict | None = None) -> dict:
         E.accumulate()
     P = E.eval["precision"]  # [T, R, K, A, M]
     R = E.eval["recall"]     # [T, K, A, M]
-    m300, m100 = MAXDETS.index(300), MAXDETS.index(100)
+    m300, m100 = MAXDETS.index(500), MAXDETS.index(100)  # m300 holds the maxDets=500 index
     t50, t75 = 0, 5
     out = {
         "mAP50_95": _ap(P[:, :, :, 0, m300]), "mAP50": _ap(P[t50, :, :, 0, m300]), "mAP75": _ap(P[t75, :, :, 0, m300]),
         "mAP50_95_md100": _ap(P[:, :, :, 0, m100]), "mAP50_md100": _ap(P[t50, :, :, 0, m100]),
-        "AR300": _ap(R[:, :, 0, m300]),
+        "AR500": _ap(R[:, :, 0, m300]),
     }
     for a, name in enumerate(AREAS):
         if name != "all":
@@ -86,5 +88,5 @@ def coco_eval(gt: dict, dets: list[dict], ignore: dict | None = None) -> dict:
 
 
 def fmt(m: dict) -> str:
-    keys = ["mAP50_95", "mAP50", "mAP75", "AP_tiny", "AP_small", "AP_medium", "AP_large", "mAP50_95_md100", "AR300"]
+    keys = ["mAP50_95", "mAP50", "mAP75", "AP_tiny", "AP_small", "AP_medium", "AP_large", "mAP50_95_md100", "AR500"]
     return " ".join(f"{k}={m[k]:.2f}" for k in keys if k in m)
