@@ -1,6 +1,12 @@
-# Fine-tune yolo26n from its official COCO checkpoint; evaluate with the unified evaluator.
+# R1 candidate: RDD @1280, 30 epochs
 smoke: false
 data_root: /tmp/visdrone/data
 tasks: [data, train]
-train: {model: yolo26n, epochs: 100, imgsz: 640, seeds: [0]}
-eval: {imgsz: [640, 1280], splits: [valid, test]}
+train:
+  model: rdd
+  epochs: 30
+  imgsz: 1280
+  seeds: [0]
+  extra: {cache: false}   # 1280 RAM cache would need ~24 GB
+  arch: {yaml: models/rdd.yaml, stride_mult: 64, inherit: {offset: 2, max_src: 19, detect_levels: [0, 0, 1]}}
+eval: {imgsz: [1280], splits: [valid]}   # screening: val only (test-dev stays closed)
