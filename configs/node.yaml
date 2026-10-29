@@ -1,6 +1,6 @@
-# R1 iso-FLOPs control: YOLO26n @800, 30 epochs
+# R1 iso-FLOPs control: YOLO26n @800, 30 epochs (seed 1, seed-noise check)
 smoke: false
 data_root: /tmp/visdrone/data
 tasks: [data, train]
-train: {model: yolo26n, epochs: 30, imgsz: 800, seeds: [0]}
+train: {model: yolo26n, epochs: 30, imgsz: 800, seeds: [1]}
 eval: {imgsz: [800], splits: [valid]}   # screening: val only (test-dev stays closed)
