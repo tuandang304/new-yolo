@@ -1,6 +1,8 @@
 # Fine-tune rfdetr-nano from its official COCO checkpoint; evaluate with the unified evaluator.
-smoke: true
+# 100 epochs at ~10 min/epoch exceed Kaggle's 12 h cap on T4, so this node trains on a Colab A100;
+# its T4 latency comes from the smoke run on Kaggle T4 (latency depends on architecture only).
+smoke: false
 data_root: /tmp/visdrone/data
 tasks: [data, train]
-train: {model: rfdetr-nano, epochs: 100, imgsz: 640, seeds: [0]}
+train: {model: rfdetr-nano, epochs: 100, imgsz: 640, seeds: [0], extra: {checkpoint_interval: 50, num_workers: 8}}
 eval: {imgsz: [640, 1280], splits: [valid, test]}
