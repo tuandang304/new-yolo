@@ -32,7 +32,8 @@ class YoloPredictor:
         self.map = _name_map(self.model.names)
         print(f"[predict] {ckpt}: names={self.model.names} -> map={self.map}", flush=True)
 
-    def __call__(self, paths: list[str], imgsz: int, conf: float = 0.001, max_det: int = 300, batch: int = 8):
+    def __call__(self, paths: list[str], imgsz: int, conf: float = 0.001, max_det: int = 500, batch: int = 8):
+        # default Ultralytics predict path (nms=None): one-to-many head + NMS, also for YOLO26/YOLOv10
         for i in range(0, len(paths), batch):
             chunk = paths[i:i + batch]
             res = self.model.predict(chunk, imgsz=imgsz, conf=conf, iou=0.7, max_det=max_det, device=self.device,
@@ -60,7 +61,8 @@ class RFDETRPredictor:
         print(f"[predict] {ckpt}: class_names={self.model.class_names} -> map={self.map} "
               f"res={self.model.model_config.resolution}", flush=True)
 
-    def __call__(self, paths: list[str], imgsz: int, conf: float = 0.001, max_det: int = 300, batch: int = 8):
+    def __call__(self, paths: list[str], imgsz: int, conf: float = 0.001, max_det: int = 500, batch: int = 8):
+        # RF-DETR returns at most num_select (=300 for Nano) boxes per image; recorded as a known cap
         from PIL import Image
         for i in range(0, len(paths), batch):
             chunk = paths[i:i + batch]
@@ -83,7 +85,7 @@ def load_predictor(family: str, ckpt: str, device: str = "cpu", half: bool = Fal
     return {"ultralytics": YoloPredictor, "rfdetr": RFDETRPredictor}[family](ckpt, device, half)
 
 
-def predict_split(pred, data_root: Path, split: str, imgsz: int, coco: dict, max_det: int = 300) -> list[dict]:
+def predict_split(pred, data_root: Path, split: str, imgsz: int, coco: dict, max_det: int = 500) -> list[dict]:
     """COCO-results list for one split."""
     ids = {im["file_name"]: im["id"] for im in coco["images"]}
     paths = [str(data_root / split / "images" / im["file_name"]) for im in coco["images"]]
