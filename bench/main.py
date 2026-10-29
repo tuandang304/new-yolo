@@ -154,12 +154,13 @@ def task_train(cfg: dict, root: Path, seed: int, gpu: int) -> dict:
     model = t["model"]
     out = OUT / f"{model}_s{seed}"
     epochs = 1 if cfg.get("smoke") else t.get("epochs", 100)  # smoke: 1 full epoch -> real epoch time
-    dev = str(gpu) if FAMILY[model] == "ultralytics" else f"cuda:{gpu}"
-    ckpt, info = train(model, root, out, epochs, t.get("imgsz", 640), seed, dev, t.get("extra"))
+    fam = FAMILY.get(model, "ultralytics")  # proposed architectures (train.arch) are Ultralytics models
+    dev = str(gpu) if fam == "ultralytics" else f"cuda:{gpu}"
+    ckpt, info = train(model, root, out, epochs, t.get("imgsz", 640), seed, dev, t.get("extra"), t.get("arch"))
     log_result("train", {"model": model, "seed": seed, **info})
     ev = cfg.get("eval", {})
-    res = evaluate_ckpt(f"{model}_s{seed}", FAMILY[model], ckpt, eval_root(cfg, root), ev.get("imgsz", [640, 1280]),
-                        ev.get("splits", ["valid", "test"]), dev if FAMILY[model] == "ultralytics" else f"cuda:{gpu}",
+    res = evaluate_ckpt(f"{model}_s{seed}", fam, ckpt, eval_root(cfg, root), ev.get("imgsz", [640, 1280]),
+                        ev.get("splits", ["valid", "test"]), dev if fam == "ultralytics" else f"cuda:{gpu}",
                         out, efficiency_imgsz=t.get("imgsz", 640))
     res["train"] = info
     (out / f"result_{model}_s{seed}.json").write_text(json.dumps(res, indent=2))
