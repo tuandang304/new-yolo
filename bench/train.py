@@ -9,10 +9,21 @@ FAMILY = {"yolo26n": "ultralytics", "yolo11n": "ultralytics", "yolov10n": "ultra
 
 
 def train(model: str, data_root: Path, out: Path, epochs: int, imgsz: int, seed: int, device: str,
-          extra: dict | None = None) -> tuple[str, dict]:
+          extra: dict | None = None, arch: dict | None = None) -> tuple[str, dict]:
     extra = extra or {}
     t0 = time.time()
-    if FAMILY[model] == "ultralytics":
+    if arch:  # proposed architecture: custom trainer builds the model and inherits YOLO26n COCO tensors
+        from ultralytics import YOLO
+        from .pra import make_trainer
+        y = YOLO(arch.get("init", "yolo26n.pt"))  # only a handle; PRATrainer.get_model builds `arch`
+        kw = dict(data=str(data_root / "data.yaml"), epochs=epochs, imgsz=imgsz, batch=16, seed=seed,
+                  deterministic=True, device=device, project=str(out), name="train", exist_ok=True, plots=True,
+                  workers=4, cache="ram", val=True, trainer=make_trainer(arch))
+        kw.update(extra)
+        print(f"[train] proposed {model} arch={arch} {kw}", flush=True)
+        y.train(**kw)
+        ckpt = out / "train" / "weights" / "best.pt"
+    elif FAMILY[model] == "ultralytics":
         from ultralytics import YOLO
         y = YOLO(f"{model}.pt")
         kw = dict(data=str(data_root / "data.yaml"), epochs=epochs, imgsz=imgsz, batch=16, seed=seed,
