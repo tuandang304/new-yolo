@@ -44,9 +44,13 @@ def env_info() -> dict:
 
 
 def data_root(cfg: dict) -> Path:
-    root = D.prepare(cfg.get("data_root", "/tmp/visdrone/data"))
+    return D.prepare(cfg.get("data_root", "/tmp/visdrone/data"))
+
+
+def eval_root(cfg: dict, root: Path) -> Path:
+    """Smoke runs evaluate on a 48-image subset of val/test; full runs on the complete splits."""
     if cfg.get("smoke"):
-        root = D.make_subset(root, root.parent / "data_smoke", {"train": 64, "valid": 48, "test": 48})
+        return D.make_subset(root, root.parent / "data_smoke", {"train": 64, "valid": 48, "test": 48})
     return root
 
 
@@ -97,7 +101,7 @@ def task_parity(cfg: dict, root: Path) -> list[dict]:
     for p in cfg["parity"]:
         ckpt = hf_hub_download(p["repo"], p["file"])
         dev = ("0" if device == "cuda" else "cpu") if p["family"] == "ultralytics" else device
-        outs.append(evaluate_ckpt(p["name"], p["family"], ckpt, root, p["imgsz"], cfg.get("splits", ["valid", "test"]),
+        outs.append(evaluate_ckpt(p["name"], p["family"], ckpt, eval_root(cfg, root), p["imgsz"], cfg.get("splits", ["valid", "test"]),
                                   dev, OUT / "parity", efficiency_imgsz=640))
     return outs
 
@@ -149,12 +153,12 @@ def task_train(cfg: dict, root: Path, seed: int, gpu: int) -> dict:
     t = cfg["train"]
     model = t["model"]
     out = OUT / f"{model}_s{seed}"
-    epochs = 1 if cfg.get("smoke") else t.get("epochs", 100)
+    epochs = 1 if cfg.get("smoke") else t.get("epochs", 100)  # smoke: 1 full epoch -> real epoch time
     dev = str(gpu) if FAMILY[model] == "ultralytics" else f"cuda:{gpu}"
     ckpt, info = train(model, root, out, epochs, t.get("imgsz", 640), seed, dev, t.get("extra"))
     log_result("train", {"model": model, "seed": seed, **info})
     ev = cfg.get("eval", {})
-    res = evaluate_ckpt(f"{model}_s{seed}", FAMILY[model], ckpt, root, ev.get("imgsz", [640, 1280]),
+    res = evaluate_ckpt(f"{model}_s{seed}", FAMILY[model], ckpt, eval_root(cfg, root), ev.get("imgsz", [640, 1280]),
                         ev.get("splits", ["valid", "test"]), dev if FAMILY[model] == "ultralytics" else f"cuda:{gpu}",
                         out, efficiency_imgsz=t.get("imgsz", 640))
     res["train"] = info
