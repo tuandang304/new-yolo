@@ -1,7 +1,7 @@
-# Root node: data audit + TPU/XLA probe + parity re-evaluation of public DetectionBench VisDrone checkpoints.
-smoke: true
+# Root node: data audit + parity re-evaluation of public DetectionBench VisDrone checkpoints (Kaggle T4; the Kaggle TPU queue stalled >2 h, so the TPU/XLA probe moves to a later node).
+smoke: false
 data_root: /tmp/visdrone/data
-tasks: [data, tpu_probe, parity]
+tasks: [data, tpu_probe, parity]  # tpu_probe only reports when torch_xla is present
 splits: [valid, test]
 probe_rfdetr_xla: true
 probe_timeout_s: 1800
