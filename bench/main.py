@@ -89,6 +89,7 @@ def evaluate_ckpt(tag: str, family: str, ckpt: str, root: Path, imgszs: list[int
         res["efficiency"].update(efficiency.latency(pred, sample, efficiency_imgsz))
     log_result("efficiency", {"tag": tag, **res["efficiency"]})
     (out / f"result_{tag}.json").write_text(json.dumps(res, indent=2))
+    print("RESULT_FULL " + json.dumps(res), flush=True)  # backends that delete the machine keep only the log
     return res
 
 
