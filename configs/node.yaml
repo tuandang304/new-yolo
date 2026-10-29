@@ -1,4 +1,4 @@
-# R1 candidate: PRA-a @864, 30 epochs
+# R1 candidate: PRA-a @864, 30 epochs (seed 1, seed-noise check)
 smoke: false
 data_root: /tmp/visdrone/data
 tasks: [data, train]
@@ -6,6 +6,6 @@ train:
   model: pra_a
   epochs: 30
   imgsz: 864
-  seeds: [0]
+  seeds: [1]
   arch: {yaml: models/pra_a.yaml, head_c3: 32, inherit: {offset: 0, max_src: 19, detect_levels: [0, 1]}}
 eval: {imgsz: [864], splits: [valid]}   # screening: val only (test-dev stays closed)
