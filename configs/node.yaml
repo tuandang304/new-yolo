@@ -1,15 +1,15 @@
-# Round 5 ctrl1: 30-epoch screening, val only. See the experiment description.
+# Round 6 C0: R4b unchanged at 640 px (resolution-matched control), 30 ep, seed 0, val only.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r5_ctrl1
+  model: r6_c0
   epochs: 30
-  imgsz: 1024
+  imgsz: 640
   seeds:
-  - 1
+  - 0
   arch:
     yaml: models/pra_a20.yaml
     head_c3: 32
@@ -43,6 +43,6 @@ train:
     workers: 8
 eval:
   imgsz:
-  - 1024
+  - 640
   splits:
   - valid
