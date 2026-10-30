@@ -1,4 +1,4 @@
-# Round 3 A10: 30-epoch screening on L4 (val only). See the experiment description. GCP run: RAM cache off (VM RAM unknown; cache does not change results).
+# Round 3 A10: 30-epoch screening on L4 (val only). See the experiment description. Moved from GCP (SSH helper failure x2) to Colab L4.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks: [data, train]
@@ -14,7 +14,7 @@ train:
       offset: 0
       max_src: 16
       detect_levels: [0, 1]
-  extra: {workers: 8, cache: false}
+  extra: {workers: 8}
 eval:
   imgsz: [928]
   splits: [valid]
