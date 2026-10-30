@@ -1,11 +1,26 @@
-# R1 candidate: PRA-a @864, 30 epochs
+# Round 3 A20: 30-epoch screening on L4 (val only). See the experiment description.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks: [data, train]
 train:
-  model: pra_a
+  model: r3_a20
   epochs: 30
-  imgsz: 864
+  imgsz: 960
   seeds: [0]
-  arch: {yaml: models/pra_a.yaml, head_c3: 32, inherit: {offset: 0, max_src: 19, detect_levels: [0, 1]}}
-eval: {imgsz: [864], splits: [valid]}   # screening: val only (test-dev stays closed)
+  arch:
+    yaml: models/pra_a20.yaml
+    head_c3: 32
+    stride_mult: 64
+    append_bottlenecks:
+    - {layer: 9, n: 2}
+    append_psa:
+    - {layer: 11, n: 1}
+    inherit:
+      ranges:
+      - [0, 6, 0]
+      - [7, 19, 1]
+      detect_levels: [0, 1]
+  extra: {workers: 8}
+eval:
+  imgsz: [960]
+  splits: [valid]
