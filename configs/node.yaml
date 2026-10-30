@@ -1,4 +1,4 @@
-# Round 4 R4c: 30-epoch screening, val only. See the experiment description.
+# Round 4 R4c: 30-epoch screening, val only. See the experiment description. RAM cache off: at 1088 px it was killed on Kaggle (30 GB host RAM); does not change results.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
@@ -45,6 +45,7 @@ train:
       - 1
   extra:
     workers: 8
+    cache: false
 eval:
   imgsz:
   - 1088
