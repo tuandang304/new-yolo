@@ -1,18 +1,21 @@
-# Round 4 R4b: 30-epoch screening, val only. See the experiment description.
+# Round 5 R5a: 30-epoch screening, val only. See the experiment description.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r4_r4b
+  model: r5_r5a
   epochs: 30
   imgsz: 1024
   seeds:
   - 0
   arch:
-    yaml: models/pra_a20.yaml
-    head_c3: 32
+    yaml: models/pra_a20_s32d.yaml
+    head_c3:
+    - 32
+    - 32
+    - 32
     stride_mult: 64
     append_bottlenecks:
     - layer: 9
@@ -39,6 +42,7 @@ train:
       detect_levels:
       - 0
       - 1
+      - 0
   extra:
     workers: 8
 eval:
