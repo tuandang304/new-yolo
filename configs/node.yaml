@@ -1,11 +1,11 @@
-# Round 4 R4b: 30-epoch screening, val only. See the experiment description.
+# Round 5 R5d: 30-epoch screening, val only. See the experiment description.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r4_r4b
+  model: r5_r5d
   epochs: 30
   imgsz: 1024
   seeds:
@@ -41,6 +41,7 @@ train:
       - 1
   extra:
     workers: 8
+  mask_ignore: true
 eval:
   imgsz:
   - 1024

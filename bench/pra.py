@@ -4,6 +4,7 @@ An architecture is configured in configs/node.yaml as `train.arch`:
   yaml:          repo-relative model YAML (models/*.yaml)
   pooled_first:  index of the first trunk conv that gets a 2x average-pool in front (RDD: trunk runs at 1/2 res)
   head_c3:       width of the Detect classification branch, an int or one per level (default: Ultralytics rule)
+  head_k:        kernel of the DWConvs in the classification branch, one per level (default 3)
   spd_layers:    shallow 3x3 stride-2 convs replaced by space-to-depth + 1x1 conv (lose COCO weights)
   deep_plus:     [{layer, n}] C3k2 layers given an extra zero-init residual C3k2 (keeps COCO weights; adds deep capacity)
   adown_layers:  stride-2 convs replaced by Ultralytics ADown (avg-pool + split 3x3-s2 / maxpool-1x1; lose COCO weights)
@@ -195,9 +196,9 @@ def surgery(model, arch: dict) -> None:
         ch = [s[0][0].conv.in_channels for s in det.cv3]
         c3s = arch["head_c3"] if isinstance(arch["head_c3"], list) else [arch["head_c3"]] * len(ch)  # int or per level
         lite = nn.ModuleList(
-            nn.Sequential(nn.Sequential(DWConv(x, x, 3), Conv(x, c3, 1)),
-                          nn.Sequential(DWConv(c3, c3, 3), Conv(c3, c3, 1)),
-                          nn.Conv2d(c3, det.nc, 1)) for x, c3 in zip(ch, c3s))
+            nn.Sequential(nn.Sequential(DWConv(x, x, k), Conv(x, c3, 1)),
+                          nn.Sequential(DWConv(c3, c3, k), Conv(c3, c3, 1)),
+                          nn.Conv2d(c3, det.nc, 1)) for x, c3, k in zip(ch, c3s, arch.get("head_k", [3] * len(ch))))
         det.cv3 = lite
         if getattr(det, "one2one_cv3", None) is not None:
             import copy
