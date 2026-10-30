@@ -1,26 +1,48 @@
-# R3 confirm: A20 @960, 100 epochs on T4 (val only). See the experiment description.
+# Round 4 R4b: 30-epoch screening, val only. See the experiment description.
 smoke: false
 data_root: /tmp/visdrone/data
-tasks: [data, train]
+tasks:
+- data
+- train
 train:
-  model: r3_a20
-  epochs: 100
-  imgsz: 960
-  seeds: [0]
+  model: r4_r4b
+  epochs: 30
+  imgsz: 1024
+  seeds:
+  - 0
   arch:
     yaml: models/pra_a20.yaml
     head_c3: 32
     stride_mult: 64
     append_bottlenecks:
-    - {layer: 9, n: 2}
+    - layer: 9
+      n: 4
     append_psa:
-    - {layer: 11, n: 1}
+    - layer: 11
+      n: 2
+    lowrank:
+      layers:
+      - 3
+      - 5
+      ratio: 0.5
+    detail_inject:
+      src: 2
+      dst: 17
     inherit:
       ranges:
-      - [0, 6, 0]
-      - [7, 19, 1]
-      detect_levels: [0, 1]
-  extra: {workers: 8}
+      - - 0
+        - 6
+        - 0
+      - - 7
+        - 19
+        - 1
+      detect_levels:
+      - 0
+      - 1
+  extra:
+    workers: 8
 eval:
-  imgsz: [960]
-  splits: [valid]
+  imgsz:
+  - 1024
+  splits:
+  - valid
