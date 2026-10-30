@@ -1,10 +1,10 @@
-# Round 3 P10: 30-epoch screening on L4 (val only). See the experiment description.
+# R3 confirm: P10 @960, 100 epochs on T4 (val only). See the experiment description.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks: [data, train]
 train:
   model: r3_p10
-  epochs: 30
+  epochs: 100
   imgsz: 960
   seeds: [0]
   arch:
