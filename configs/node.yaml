@@ -41,6 +41,7 @@ train:
       - 1
   extra:
     workers: 8
+    cache: false
   mask_ignore: true
 eval:
   imgsz:
