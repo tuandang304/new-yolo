@@ -1,0 +1,53 @@
+# Round 4 R4c: 30-epoch screening, val only. See the experiment description. RAM cache off: at 1088 px it was killed on Kaggle (30 GB host RAM); does not change results.
+smoke: false
+data_root: /tmp/visdrone/data
+tasks:
+- data
+- train
+train:
+  model: r4_r4c
+  epochs: 30
+  imgsz: 1088
+  seeds:
+  - 0
+  arch:
+    yaml: models/pra_a20_s32.yaml
+    head_c3: 32
+    stride_mult: 64
+    append_bottlenecks:
+    - layer: 9
+      n: 4
+    append_psa:
+    - layer: 11
+      n: 2
+    lowrank:
+      layers:
+      - 3
+      - 5
+      - 19
+      ratio: 0.5
+    inherit:
+      ranges:
+      - - 0
+        - 6
+        - 0
+      - - 7
+        - 10
+        - 1
+      - - 11
+        - 17
+        - 2
+      - - 18
+        - 19
+        - 3
+      detect_levels:
+      - 0
+      - 1
+  extra:
+    workers: 8
+    cache: false
+eval:
+  imgsz:
+  - 1088
+  splits:
+  - valid
