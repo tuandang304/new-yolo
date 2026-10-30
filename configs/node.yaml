@@ -1,17 +1,17 @@
-# Round 5 ctrl1: 30-epoch screening, val only. See the experiment description.
+# Round 6 R6b: R4b at 640 px + top-down P2 branch, Detect P2/P3/P4 (P2 box head from COCO P3), zero-init P2->P3 bottom-up, 30 ep, seed 0.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r5_ctrl1
+  model: r6b
   epochs: 30
-  imgsz: 1024
+  imgsz: 640
   seeds:
-  - 1
+  - 0
   arch:
-    yaml: models/pra_a20.yaml
+    yaml: models/pra_a20_p2.yaml
     head_c3: 32
     stride_mult: 64
     append_bottlenecks:
@@ -38,11 +38,13 @@ train:
         - 1
       detect_levels:
       - 0
+      - 0
       - 1
+    detect_bu: true
   extra:
     workers: 8
 eval:
   imgsz:
-  - 1024
+  - 640
   splits:
   - valid
