@@ -1,11 +1,23 @@
-# R2-departure: P3-only detection @928, 30 epochs
+# Round 3 P10: 30-epoch screening on L4 (val only). See the experiment description.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks: [data, train]
 train:
-  model: pra_p3
+  model: r3_p10
   epochs: 30
-  imgsz: 928
+  imgsz: 960
   seeds: [0]
-  arch: {yaml: models/pra_p3.yaml, head_c3: 32, inherit: {offset: 0, max_src: 16, detect_levels: [0]}}
-eval: {imgsz: [928], splits: [valid]}   # val only (test-dev stays closed)
+  arch:
+    yaml: models/pra_p3.yaml
+    head_c3: 32
+    lowrank:
+      layers: [3, 5]
+      ratio: 0.75
+    inherit:
+      offset: 0
+      max_src: 16
+      detect_levels: [0]
+  extra: {workers: 8}
+eval:
+  imgsz: [960]
+  splits: [valid]
