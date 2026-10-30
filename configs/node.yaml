@@ -1,4 +1,4 @@
-# Round 3 A10: 30-epoch screening on L4 (val only). See the experiment description. Moved from GCP (SSH helper failure x2) to Colab L4.
+# Round 3 A10: 30-epoch screening on L4 (val only). See the experiment description. Moved from GCP (SSH helper failure x2) to Kaggle T4 (Colab L4 sessions full); compare with T4 PRA-a 30ep.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks: [data, train]
