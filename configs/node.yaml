@@ -1,19 +1,19 @@
-# Round 5 ctrl1: 30-epoch screening, val only. See the experiment description.
+# Round 6 R6a: R4b at 640 px input, x1.5 bilinear lift at L1 (trunk on the R4b@960 grid), 30 ep, seed 0.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r5_ctrl1
+  model: r6a
   epochs: 30
-  imgsz: 1024
+  imgsz: 640
   seeds:
-  - 1
+  - 0
   arch:
     yaml: models/pra_a20.yaml
     head_c3: 32
-    stride_mult: 64
+    stride_mult: 128
     append_bottlenecks:
     - layer: 9
       n: 4
@@ -39,10 +39,13 @@ train:
       detect_levels:
       - 0
       - 1
+    lift:
+      layer: 1
+      scale: 1.5
   extra:
     workers: 8
 eval:
   imgsz:
-  - 1024
+  - 640
   splits:
   - valid
