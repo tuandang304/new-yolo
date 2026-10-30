@@ -42,6 +42,7 @@ train:
   extra:
     workers: 8
     scale: 0.25
+    cache: false
 eval:
   imgsz:
   - 1024
