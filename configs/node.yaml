@@ -1,18 +1,18 @@
-# Round 5 ctrl1: 30-epoch screening, val only. See the experiment description.
+# Round 6 R6d: R4b at width 0.375 (4.92M params), overlapping-slice COCO copy incl. SVD factors, 640 px, 30 ep, seed 0.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r5_ctrl1
+  model: r6d
   epochs: 30
-  imgsz: 1024
+  imgsz: 640
   seeds:
-  - 1
+  - 0
   arch:
-    yaml: models/pra_a20.yaml
-    head_c3: 32
+    yaml: models/pra_a20_w375.yaml
+    head_c3: 48
     stride_mult: 64
     append_bottlenecks:
     - layer: 9
@@ -39,10 +39,11 @@ train:
       detect_levels:
       - 0
       - 1
+      partial: true
   extra:
     workers: 8
 eval:
   imgsz:
-  - 1024
+  - 640
   splits:
   - valid

@@ -13,6 +13,9 @@ An architecture is configured in configs/node.yaml as `train.arch`:
   inherit:       {offset: k, max_src: L, detect_levels: [src level for each new Detect level, -1 = none]}
                  maps yolo26n.pt tensors model.{i} -> model.{i+k} for i <= L, and Detect level l' <- level src.
                  `partial: true` also copies the overlapping slice of backbone/neck tensors whose channels were widened.
+  lift:          {layer, scale} bilinearly upsamples the input of trunk conv `layer` by `scale` (keeps COCO tensors);
+                 the trunk then runs on a finer grid, Detect strides are divided by `scale` (stride_mult must stay integral)
+  detect_bu:     true adds a zero-init bottom-up residual P2->P3 inside Detect (level 0 -> level 1; no-op at init)
 Every inherited tensor must match in shape unless `partial`; the count of transferred tensors is printed.
 """
 from __future__ import annotations
@@ -40,6 +43,31 @@ class PooledConv(_Conv):
 
     def forward_fuse(self, x):
         return super().forward_fuse(F.avg_pool2d(x, 2))
+
+
+class LiftConv(_Conv):
+    """Ultralytics Conv whose input is bilinearly upsampled by self.lift first; parameter names identical to Conv."""
+
+    def forward(self, x):
+        return super().forward(F.interpolate(x, scale_factor=self.lift, mode="bilinear", align_corners=False))
+
+    def forward_fuse(self, x):
+        return super().forward_fuse(F.interpolate(x, scale_factor=self.lift, mode="bilinear", align_corners=False))
+
+
+try:
+    from ultralytics.nn.modules.head import Detect as _Detect
+except Exception:  # pragma: no cover
+    _Detect = nn.Module
+
+
+class DetectBU(_Detect):
+    """Detect with a zero-init bottom-up residual: level1 += bu(level0) (stride-2 conv, BN gain 0 -> no-op at init)."""
+
+    def forward(self, x):
+        x = list(x)
+        x[1] = x[1] + self.bu(x[0])
+        return super().forward(x)
 
 
 class SPDConv(nn.Module):
@@ -109,11 +137,21 @@ class LowRankConv(nn.Module):
         W = conv.conv.weight.detach().float()
         c2, c1 = W.shape[:2]
         U, S, Vh = torch.linalg.svd(W.reshape(c2, -1), full_matrices=False)
-        r = self.a.out_channels
+        r = min(self.a.out_channels, S.numel())
         sq = S[:r].sqrt()
-        self.a.weight.copy_((sq[:, None] * Vh[:r]).reshape(r, c1, 3, 3))
-        self.b.conv.weight.copy_((U[:, :r] * sq[None]).reshape(c2, r, 1, 1))
-        self.b.bn.load_state_dict(conv.bn.state_dict())
+        a = (sq[:, None] * Vh[:r]).reshape(r, c1, 3, 3)
+        b = (U[:, :r] * sq[None]).reshape(c2, r, 1, 1)
+        if self.a.weight.shape == a.shape and self.b.conv.weight.shape == b.shape:
+            self.a.weight.copy_(a)
+            self.b.conv.weight.copy_(b)
+            self.b.bn.load_state_dict(conv.bn.state_dict())
+        else:  # widened layer: copy the COCO factors into the overlapping slice, keep the fresh init elsewhere
+            self.a.weight[:r, :c1].copy_(a[:, :self.a.weight.shape[1]])
+            self.b.conv.weight[:c2, :r].copy_(b[:self.b.conv.weight.shape[0]])
+            for k, v in conv.bn.state_dict().items():
+                t = getattr(self.b.bn, k)
+                if t.ndim:
+                    t[:v.shape[0]].copy_(v[:t.shape[0]])
         return float((S[:r] ** 2).sum() / (S ** 2).sum())
 
 
@@ -192,6 +230,19 @@ def surgery(model, arch: dict) -> None:
         model.save = sorted(set(model.save) | {src})
         m.np = sum(p.numel() for p in m.parameters())
     det = seq[-1]
+    if arch.get("lift"):
+        m = seq[arch["lift"]["layer"]]
+        assert type(m) is Conv, (arch["lift"], type(m))
+        m.__class__ = LiftConv
+        m.lift = float(arch["lift"]["scale"])
+        det.stride = det.stride / m.lift
+        print(f"[pra] lift x{m.lift} at layer {arch['lift']['layer']}: Detect strides {det.stride.tolist()}", flush=True)
+    if arch.get("detect_bu"):
+        assert type(det) is _Detect, type(det)
+        c0, c1 = (det.cv2[i][0].conv.in_channels for i in (0, 1))
+        det.__class__ = DetectBU
+        det.bu = nn.Sequential(Conv(c0, c1, 3, 2), Conv(c1, c1, 1, 1, act=False))
+        nn.init.zeros_(det.bu[1].bn.weight)
     if arch.get("head_c3"):
         ch = [s[0][0].conv.in_channels for s in det.cv3]
         c3s = arch["head_c3"] if isinstance(arch["head_c3"], list) else [arch["head_c3"]] * len(ch)  # int or per level
