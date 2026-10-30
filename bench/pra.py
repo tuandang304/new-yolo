@@ -3,14 +3,16 @@
 An architecture is configured in configs/node.yaml as `train.arch`:
   yaml:          repo-relative model YAML (models/*.yaml)
   pooled_first:  index of the first trunk conv that gets a 2x average-pool in front (RDD: trunk runs at 1/2 res)
-  head_c3:       width of the Detect classification branch (default: Ultralytics rule)
+  head_c3:       width of the Detect classification branch, an int or one per level (default: Ultralytics rule)
   spd_layers:    shallow 3x3 stride-2 convs replaced by space-to-depth + 1x1 conv (lose COCO weights)
   deep_plus:     [{layer, n}] C3k2 layers given an extra zero-init residual C3k2 (keeps COCO weights; adds deep capacity)
   adown_layers:  stride-2 convs replaced by Ultralytics ADown (avg-pool + split 3x3-s2 / maxpool-1x1; lose COCO weights)
   stride_mult:   letterbox/grid multiple for the whole model (64 when the trunk is pooled)
-  inherit:       {offset: k, max_src: L, detect_levels: [src level for each new Detect level]}
+  detail_inject: {src, dst} adds zero-init residual space-to-depth(src) to the output of C3k2 layer dst (keeps COCO tensors)
+  inherit:       {offset: k, max_src: L, detect_levels: [src level for each new Detect level, -1 = none]}
                  maps yolo26n.pt tensors model.{i} -> model.{i+k} for i <= L, and Detect level l' <- level src.
-Every inherited tensor must match in shape; the count of transferred tensors is printed.
+                 `partial: true` also copies the overlapping slice of backbone/neck tensors whose channels were widened.
+Every inherited tensor must match in shape unless `partial`; the count of transferred tensors is printed.
 """
 from __future__ import annotations
 
@@ -66,6 +68,14 @@ class C3k2Plus(_C3k2):
     def forward(self, x):
         y = super().forward(x)
         return y + self.zgamma * self.zx(y)
+
+
+class C3k2Detail(_C3k2):
+    """C3k2 taking [x, detail]: y = C3k2(x) + dz(detail), dz = 1x1 + space-to-depth + 1x1 Conv-BN with BN gain 0 (no-op at init)."""
+
+    def forward(self, inputs):
+        x, d = inputs
+        return super().forward(x) + self.dz(d)
 
 
 class ZeroResBottleneck(nn.Module):
@@ -168,14 +178,26 @@ def surgery(model, arch: dict) -> None:
             new.i, new.f, new.type = old.i, old.f, "bench.pra.LowRankConv"
             new.np = sum(p.numel() for p in new.parameters())
             seq[i] = new
+    if arch.get("detail_inject"):
+        src, dst = arch["detail_inject"]["src"], arch["detail_inject"]["dst"]
+        m = seq[dst]
+        assert type(m).__name__ == "C3k2", (dst, type(m))
+        cs, c = seq[src].cv2.conv.out_channels, m.cv2.conv.out_channels
+        m.__class__ = C3k2Detail
+        cd = arch["detail_inject"].get("ch", 16)  # thin 1x1 first: the stride-4 map is the most expensive place to spend FLOPs
+        m.dz = nn.Sequential(_Conv(cs, cd, 1, 1), nn.PixelUnshuffle(2), _Conv(4 * cd, c, 1, 1, act=False))
+        nn.init.zeros_(m.dz[2].bn.weight)
+        m.f = [m.f, src]
+        model.save = sorted(set(model.save) | {src})
+        m.np = sum(p.numel() for p in m.parameters())
     det = seq[-1]
     if arch.get("head_c3"):
-        c3 = arch["head_c3"]
         ch = [s[0][0].conv.in_channels for s in det.cv3]
+        c3s = arch["head_c3"] if isinstance(arch["head_c3"], list) else [arch["head_c3"]] * len(ch)  # int or per level
         lite = nn.ModuleList(
             nn.Sequential(nn.Sequential(DWConv(x, x, 3), Conv(x, c3, 1)),
                           nn.Sequential(DWConv(c3, c3, 3), Conv(c3, c3, 1)),
-                          nn.Conv2d(c3, det.nc, 1)) for x in ch)
+                          nn.Conv2d(c3, det.nc, 1)) for x, c3 in zip(ch, c3s))
         det.cv3 = lite
         if getattr(det, "one2one_cv3", None) is not None:
             import copy
@@ -218,6 +240,16 @@ def inherit(model, arch: dict, src: str = "yolo26n.pt") -> tuple[int, int]:
                         mapped[f"model.{det_idx}.{lm.group(1)}.{new_l}.{lm.group(3)}"] = v
     sd = model.state_dict()
     ok = {k: v for k, v in mapped.items() if k in sd and sd[k].shape == v.shape}
+    n_partial = 0
+    if inh.get("partial"):  # widened layers: copy the overlapping channels, keep the fresh init for the rest
+        for k, v in mapped.items():
+            if k in sd and k not in ok and sd[k].ndim == v.ndim and not k.startswith(f"model.{det_idx}."):
+                t = sd[k].clone()
+                cut = tuple(slice(0, min(a, b)) for a, b in zip(t.shape, v.shape))
+                t[cut] = v[cut]
+                ok[k] = t
+                n_partial += 1
+        print(f"[pra] partial copy of {n_partial} widened tensors", flush=True)
     model.load_state_dict(ok, strict=False)
     print(f"[pra] inherited {len(ok)}/{len(sd)} tensors from {src} "
           f"(mapped {len(mapped)}, shape-mismatch {sum(1 for k in mapped if k in sd and sd[k].shape != mapped[k].shape)})",

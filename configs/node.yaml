@@ -1,23 +1,35 @@
-# R3 confirm: P10 @960, 100 epochs on T4 (val only). See the experiment description.
+# Round 4 R4d: 30-epoch screening, val only. See the experiment description.
 smoke: false
 data_root: /tmp/visdrone/data
-tasks: [data, train]
+tasks:
+- data
+- train
 train:
-  model: r3_p10
-  epochs: 100
-  imgsz: 960
-  seeds: [0]
+  model: r4_r4d
+  epochs: 30
+  imgsz: 992
+  seeds:
+  - 0
   arch:
     yaml: models/pra_p3.yaml
     head_c3: 32
     lowrank:
-      layers: [3, 5]
-      ratio: 0.75
+      layers:
+      - 3
+      - 5
+      ratio: 0.5
+    append_bottlenecks:
+    - layer: 8
+      n: 1
     inherit:
       offset: 0
       max_src: 16
-      detect_levels: [0]
-  extra: {workers: 8}
+      detect_levels:
+      - 0
+  extra:
+    workers: 8
 eval:
-  imgsz: [960]
-  splits: [valid]
+  imgsz:
+  - 992
+  splits:
+  - valid
