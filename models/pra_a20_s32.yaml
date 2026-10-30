@@ -1,0 +1,34 @@
+# A20 with the top-down P4 mixing block at stride 32 (P5 stage at stride 64); P3 at stride 8, PAN P4 at stride 16. Every C3k2 keeps its channels.
+# COCO: old L0-6 -> L0-6, L7-10 -> L8-11, L13 -> L15, L16,17 -> L18,19, L19 -> L22.
+nc: 10
+end2end: true
+reg_max: 1
+scale: n
+scales:
+  n: [0.5, 0.25, 1024]
+backbone:
+- [-1, 1, Conv, [64, 3, 2]]
+- [-1, 1, Conv, [128, 3, 2]]
+- [-1, 2, C3k2, [256, false, 0.25]]
+- [-1, 1, Conv, [256, 3, 2]]
+- [-1, 2, C3k2, [512, false, 0.25]]
+- [-1, 1, Conv, [512, 3, 2]]
+- [-1, 2, C3k2, [512, true]]
+- [-1, 1, nn.AvgPool2d, [2, 2]]
+- [-1, 1, Conv, [1024, 3, 2]]
+- [-1, 2, C3k2, [1024, true]]
+- [-1, 1, SPPF, [1024, 5, 3, true]]
+- [-1, 2, C2PSA, [1024]]
+head:
+- [-1, 1, nn.Upsample, [null, 2, nearest]]
+- [6, 1, nn.AvgPool2d, [2, 2]]
+- [[12, 13], 1, Concat, [1]]
+- [-1, 2, C3k2, [512, true]]
+- [-1, 1, nn.Upsample, [null, 4, nearest]]
+- [[-1, 4], 1, Concat, [1]]
+- [-1, 2, C3k2, [256, true]]
+- [-1, 1, Conv, [256, 3, 2]]
+- [15, 1, nn.Upsample, [null, 2, nearest]]
+- [[19, 20], 1, Concat, [1]]
+- [-1, 2, C3k2, [512, true]]
+- [[18, 22], 1, Detect, [nc]]
