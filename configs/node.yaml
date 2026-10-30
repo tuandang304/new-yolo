@@ -1,4 +1,4 @@
-# Round 3 A10: 30-epoch screening on L4 (val only). See the experiment description.
+# Round 3 A10: 30-epoch screening on L4 (val only). See the experiment description. GCP run: RAM cache off (VM RAM unknown; cache does not change results).
 smoke: false
 data_root: /tmp/visdrone/data
 tasks: [data, train]
@@ -14,7 +14,7 @@ train:
       offset: 0
       max_src: 16
       detect_levels: [0, 1]
-  extra: {workers: 8}
+  extra: {workers: 8, cache: false}
 eval:
   imgsz: [928]
   splits: [valid]
