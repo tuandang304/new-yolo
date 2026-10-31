@@ -156,7 +156,8 @@ def task_train(cfg: dict, root: Path, seed: int, gpu: int) -> dict:
     epochs = 1 if cfg.get("smoke") else t.get("epochs", 100)  # smoke: 1 full epoch -> real epoch time
     fam = FAMILY.get(model, "ultralytics")  # proposed architectures (train.arch) are Ultralytics models
     dev = str(gpu) if fam == "ultralytics" else f"cuda:{gpu}"
-    ckpt, info = train(model, root, out, epochs, t.get("imgsz", 640), seed, dev, t.get("extra"), t.get("arch"))
+    train_root = D.masked_train(root) if t.get("mask_ignore") else root  # evaluation always uses the unmasked `root`
+    ckpt, info = train(model, train_root, out, epochs, t.get("imgsz", 640), seed, dev, t.get("extra"), t.get("arch"))
     log_result("train", {"model": model, "seed": seed, **info})
     ev = cfg.get("eval", {})
     res = evaluate_ckpt(f"{model}_s{seed}", fam, ckpt, eval_root(cfg, root), ev.get("imgsz", [640, 1280]),
