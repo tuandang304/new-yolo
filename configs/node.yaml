@@ -1,17 +1,17 @@
-# Round 7 r7a: see the experiment description and round7-plan.md.
+# r8c: see the experiment description and round7-plan.md.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r7a
+  model: r8c
   epochs: 30
   imgsz: 1280
   seeds:
   - 0
   arch:
-    yaml: models/pra_a20.yaml
+    yaml: models/pra_a20_o2m.yaml
     head_c3: 32
     stride_mult: 64
     append_bottlenecks:
