@@ -1,12 +1,12 @@
-# Round 6 R6c: R6a lift x1.5 + R6b P2-PAN at 640 px input, 30 ep, seed 0.
+# R6c confirmation: lift x1.5 + P2-PAN at 640 px input, 100 epochs (official 100-ep recipe), seed 0, val only.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r6c
-  epochs: 30
+  model: r6c_100
+  epochs: 100
   imgsz: 640
   seeds:
   - 0
