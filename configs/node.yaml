@@ -2,5 +2,5 @@
 smoke: false
 data_root: /tmp/visdrone/data
 tasks: [data, train]
-train: {model: yolo11n, epochs: 100, imgsz: 640, seeds: [0]}
+train: {model: yolo11n, epochs: 100, imgsz: 640, seeds: [1]}
 eval: {imgsz: [640, 1280], splits: [valid, test]}
