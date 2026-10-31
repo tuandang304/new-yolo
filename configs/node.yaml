@@ -1,18 +1,18 @@
-# R4b confirmation: 100 epochs, seed 0, val only. See the experiment description.
+# Round 7 r7f: see the experiment description and round7-plan.md.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r4b_100
-  epochs: 100
+  model: r7f
+  epochs: 30
   imgsz: 1024
   seeds:
   - 0
   arch:
     yaml: models/pra_a20.yaml
-    head_c3: 32
+    head_c3: 64
     stride_mult: 64
     append_bottlenecks:
     - layer: 9
@@ -41,6 +41,7 @@ train:
       - 1
   extra:
     workers: 8
+    cache: false
 eval:
   imgsz:
   - 1024
