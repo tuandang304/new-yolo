@@ -53,6 +53,7 @@ train:
       value: 3.0
   extra:
     workers: 8
+    cache: false
 eval:
   imgsz:
   - 1024
