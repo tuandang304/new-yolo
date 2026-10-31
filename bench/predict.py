@@ -27,6 +27,13 @@ class YoloPredictor:
 
     def __init__(self, ckpt: str, device: str = "cpu", half: bool = False):
         from ultralytics import YOLO
+        import ultralytics.utils.nms as nms
+        # predict() has no multi_label argument and defaults to one class per box; Ultralytics val and RF-DETR's
+        # top-k both score every box/class pair, so the shared evaluator uses multi-label here too.
+        if not getattr(nms.non_max_suppression, "_multi_label", False):
+            orig = nms.non_max_suppression
+            nms.non_max_suppression = lambda *a, **k: orig(*a, **{**k, "multi_label": True})
+            nms.non_max_suppression._multi_label = True
         self.model = YOLO(ckpt)
         self.device, self.half = device, half
         self.map = _name_map(self.model.names)
@@ -85,7 +92,7 @@ def load_predictor(family: str, ckpt: str, device: str = "cpu", half: bool = Fal
     return {"ultralytics": YoloPredictor, "rfdetr": RFDETRPredictor}[family](ckpt, device, half)
 
 
-def predict_split(pred, data_root: Path, split: str, imgsz: int, coco: dict, max_det: int = 500) -> list[dict]:
+def predict_split(pred, data_root: Path, split: str, imgsz: int, coco: dict, max_det: int = 1000) -> list[dict]:
     """COCO-results list for one split."""
     ids = {im["file_name"]: im["id"] for im in coco["images"]}
     paths = [str(data_root / split / "images" / im["file_name"]) for im in coco["images"]]
