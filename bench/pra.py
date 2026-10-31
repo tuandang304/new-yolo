@@ -13,6 +13,10 @@ An architecture is configured in configs/node.yaml as `train.arch`:
   inherit:       {offset: k, max_src: L, detect_levels: [src level for each new Detect level, -1 = none]}
                  maps yolo26n.pt tensors model.{i} -> model.{i+k} for i <= L, and Detect level l' <- level src.
                  `partial: true` also copies the overlapping slice of backbone/neck tensors whose channels were widened.
+  lift:          {layer, scale} bilinearly upsamples the input of trunk conv `layer` by `scale` (keeps COCO tensors);
+                 the trunk then runs on a finer grid, Detect strides are divided by `scale` (stride_mult must stay integral)
+  detect_bu:     true adds a zero-init bottom-up residual P2->P3 inside Detect (level 0 -> level 1; no-op at init)
+  pair_loss:     {pairs: [[a, b], ...], mode: relax | sharpen, value} changes the class BCE for confusable pairs (training only)
 Every inherited tensor must match in shape unless `partial`; the count of transferred tensors is printed.
 """
 from __future__ import annotations
@@ -30,6 +34,10 @@ try:
     from ultralytics.nn.modules.conv import Conv as _Conv
 except Exception:  # pragma: no cover - ultralytics always present in runs
     _Conv = nn.Module
+try:
+    from ultralytics.nn.tasks import DetectionModel as _DetectionModel
+except Exception:  # pragma: no cover - ultralytics always present in runs
+    _DetectionModel = nn.Module
 
 
 class PooledConv(_Conv):
@@ -40,6 +48,31 @@ class PooledConv(_Conv):
 
     def forward_fuse(self, x):
         return super().forward_fuse(F.avg_pool2d(x, 2))
+
+
+class LiftConv(_Conv):
+    """Ultralytics Conv whose input is bilinearly upsampled by self.lift first; parameter names identical to Conv."""
+
+    def forward(self, x):
+        return super().forward(F.interpolate(x, scale_factor=self.lift, mode="bilinear", align_corners=False))
+
+    def forward_fuse(self, x):
+        return super().forward_fuse(F.interpolate(x, scale_factor=self.lift, mode="bilinear", align_corners=False))
+
+
+try:
+    from ultralytics.nn.modules.head import Detect as _Detect
+except Exception:  # pragma: no cover
+    _Detect = nn.Module
+
+
+class DetectBU(_Detect):
+    """Detect with a zero-init bottom-up residual: level1 += bu(level0) (stride-2 conv, BN gain 0 -> no-op at init)."""
+
+    def forward(self, x):
+        x = list(x)
+        x[1] = x[1] + self.bu(x[0])
+        return super().forward(x)
 
 
 class SPDConv(nn.Module):
@@ -109,11 +142,21 @@ class LowRankConv(nn.Module):
         W = conv.conv.weight.detach().float()
         c2, c1 = W.shape[:2]
         U, S, Vh = torch.linalg.svd(W.reshape(c2, -1), full_matrices=False)
-        r = self.a.out_channels
+        r = min(self.a.out_channels, S.numel())
         sq = S[:r].sqrt()
-        self.a.weight.copy_((sq[:, None] * Vh[:r]).reshape(r, c1, 3, 3))
-        self.b.conv.weight.copy_((U[:, :r] * sq[None]).reshape(c2, r, 1, 1))
-        self.b.bn.load_state_dict(conv.bn.state_dict())
+        a = (sq[:, None] * Vh[:r]).reshape(r, c1, 3, 3)
+        b = (U[:, :r] * sq[None]).reshape(c2, r, 1, 1)
+        if self.a.weight.shape == a.shape and self.b.conv.weight.shape == b.shape:
+            self.a.weight.copy_(a)
+            self.b.conv.weight.copy_(b)
+            self.b.bn.load_state_dict(conv.bn.state_dict())
+        else:  # widened layer: copy the COCO factors into the overlapping slice, keep the fresh init elsewhere
+            self.a.weight[:r, :c1].copy_(a[:, :self.a.weight.shape[1]])
+            self.b.conv.weight[:c2, :r].copy_(b[:self.b.conv.weight.shape[0]])
+            for k, v in conv.bn.state_dict().items():
+                t = getattr(self.b.bn, k)
+                if t.ndim:
+                    t[:v.shape[0]].copy_(v[:t.shape[0]])
         return float((S[:r] ** 2).sum() / (S ** 2).sum())
 
 
@@ -192,6 +235,19 @@ def surgery(model, arch: dict) -> None:
         model.save = sorted(set(model.save) | {src})
         m.np = sum(p.numel() for p in m.parameters())
     det = seq[-1]
+    if arch.get("lift"):
+        m = seq[arch["lift"]["layer"]]
+        assert type(m) is Conv, (arch["lift"], type(m))
+        m.__class__ = LiftConv
+        m.lift = float(arch["lift"]["scale"])
+        det.stride = det.stride / m.lift
+        print(f"[pra] lift x{m.lift} at layer {arch['lift']['layer']}: Detect strides {det.stride.tolist()}", flush=True)
+    if arch.get("detect_bu"):
+        assert type(det) is _Detect, type(det)
+        c0, c1 = (det.cv2[i][0].conv.in_channels for i in (0, 1))
+        det.__class__ = DetectBU
+        det.bu = nn.Sequential(Conv(c0, c1, 3, 2), Conv(c1, c1, 1, 1, act=False))
+        nn.init.zeros_(det.bu[1].bn.weight)
     if arch.get("head_c3"):
         ch = [s[0][0].conv.in_channels for s in det.cv3]
         c3s = arch["head_c3"] if isinstance(arch["head_c3"], list) else [arch["head_c3"]] * len(ch)  # int or per level
@@ -278,6 +334,41 @@ def svd_init(model, arch: dict) -> None:
         print(f"[pra] layer {i}: SVD rank {lr.a.out_channels}/{lr.b.conv.out_channels} retains {energy:.3f} energy", flush=True)
 
 
+class PairBCE(nn.Module):
+    """BCE for confusable class pairs. Applied to the class channels only, box weights keep the original targets.
+    relax: a positive of class a also targets its partner b at eps times its score.
+    sharpen: the partner channel of a positive gets its negative term weighted by w."""
+
+    def __init__(self, pairs: list, mode: str, value: float):
+        super().__init__()
+        self.pairs, self.mode, self.value = pairs, mode, value
+        self.bce = nn.BCEWithLogitsLoss(reduction="none")
+
+    def forward(self, pred, target):
+        if self.mode == "relax":
+            t = target.clone()
+            for a, b in self.pairs:
+                t[..., a] = torch.maximum(t[..., a], self.value * target[..., b])
+                t[..., b] = torch.maximum(t[..., b], self.value * target[..., a])
+            return self.bce(pred, t)
+        w = torch.ones_like(target)
+        for a, b in self.pairs:
+            w[..., a] = torch.where((target[..., b] > 0) & (target[..., a] == 0), self.value, w[..., a])
+            w[..., b] = torch.where((target[..., a] > 0) & (target[..., b] == 0), self.value, w[..., b])
+        return self.bce(pred, target) * w
+
+
+class PairLossModel(_DetectionModel):
+    """DetectionModel whose criterion uses PairBCE; `pair_loss` is set by the trainer (architecture unchanged)."""
+
+    def init_criterion(self):
+        c = super().init_criterion()
+        cfg = self.pair_loss
+        for part in (c.one2many, c.one2one) if hasattr(c, "one2many") else (c,):
+            part.bce = PairBCE(cfg["pairs"], cfg["mode"], cfg["value"])
+        return c
+
+
 def build(arch: dict, nc: int = 10, verbose: bool = False):
     from ultralytics.nn.tasks import DetectionModel
     m = DetectionModel(str(ROOT / arch["yaml"]), nc=nc, verbose=verbose)
@@ -294,6 +385,8 @@ def make_trainer(arch: dict):
             if arch.get("init", "yolo26n.pt"):
                 inherit(model, arch, arch.get("init", "yolo26n.pt"))
                 svd_init(model, arch)
+            if arch.get("pair_loss"):
+                model.__class__, model.pair_loss = PairLossModel, arch["pair_loss"]
             n_par = sum(p.numel() for p in model.parameters())
             print(f"[pra] arch={arch} params={n_par / 1e6:.3f}M", flush=True)
             return model
