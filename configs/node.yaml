@@ -1,12 +1,12 @@
-# Round 7 r7a: see the experiment description and round7-plan.md.
+# r7a_lat: see the experiment description and round7-plan.md.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r7a
-  epochs: 30
+  model: r7a_lat
+  epochs: 1
   imgsz: 1280
   seeds:
   - 0
@@ -42,6 +42,7 @@ train:
   extra:
     workers: 8
     cache: false
+    batch: 8
 eval:
   imgsz:
   - 1280
