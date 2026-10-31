@@ -1,12 +1,12 @@
-# Round 7 r7a: see the experiment description and round7-plan.md.
+# R7a confirmation: R4b at 1280, 100 epochs, seed 0, val only. See the experiment description.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r7a
-  epochs: 30
+  model: r7a_100
+  epochs: 100
   imgsz: 1280
   seeds:
   - 0
