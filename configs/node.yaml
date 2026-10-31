@@ -43,6 +43,7 @@ train:
     detect_bu: true
   extra:
     workers: 8
+    cache: false
 eval:
   imgsz:
   - 960
