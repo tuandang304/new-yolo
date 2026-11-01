@@ -1,0 +1,123 @@
+# RDD-t2 control: identical to rdd.yaml WITHOUT the full-resolution detail stream. F8 fuses the upsampled
+# trunk P3 with the trunk's own stride-4 feature (YOLO26n L2, computed from 640 pixels) = a P2-style head on the
+# 640 trunk. Isolates the contribution of native-resolution detail pixels.
+nc: 10
+end2end: true
+reg_max: 1
+scale: n
+scales:
+  n: [0.5, 0.25, 1024]
+backbone:
+- - -1
+  - 1
+  - nn.Identity
+  - []
+- - -1
+  - 1
+  - nn.AvgPool2d
+  - [2, 2]
+- - -1
+  - 1
+  - Conv
+  - [64, 3, 2]
+- - -1
+  - 1
+  - Conv
+  - [128, 3, 2]
+- - -1
+  - 2
+  - C3k2
+  - [256, false, 0.25]
+- - -1
+  - 1
+  - Conv
+  - [256, 3, 2]
+- - -1
+  - 2
+  - C3k2
+  - [512, false, 0.25]
+- - -1
+  - 1
+  - Conv
+  - [512, 3, 2]
+- - -1
+  - 2
+  - C3k2
+  - [512, true]
+- - -1
+  - 1
+  - Conv
+  - [1024, 3, 2]
+- - -1
+  - 2
+  - C3k2
+  - [1024, true]
+- - -1
+  - 1
+  - SPPF
+  - [1024, 5, 3, true]
+- - -1
+  - 2
+  - C2PSA
+  - [1024]
+head:
+- - -1
+  - 1
+  - nn.Upsample
+  - [null, 2, nearest]
+- - [-1, 8]
+  - 1
+  - Concat
+  - [1]
+- - -1
+  - 2
+  - C3k2
+  - [512, true]
+- - -1
+  - 1
+  - nn.Upsample
+  - [null, 2, nearest]
+- - [-1, 6]
+  - 1
+  - Concat
+  - [1]
+- - -1
+  - 2
+  - C3k2
+  - [256, true]
+- - -1
+  - 1
+  - Conv
+  - [256, 3, 2]
+- - [-1, 15]
+  - 1
+  - Concat
+  - [1]
+- - -1
+  - 2
+  - C3k2
+  - [512, true]
+- - 18
+  - 1
+  - nn.Upsample
+  - [null, 2, nearest]
+- - [-1, 4]
+  - 1
+  - Concat
+  - [1]
+- - -1
+  - 1
+  - Conv
+  - [256, 1, 1]
+- - -1
+  - 1
+  - DWConv
+  - [256, 3, 1]
+- - -1
+  - 1
+  - Conv
+  - [256, 1, 1]
+- - [26, 18, 21]
+  - 1
+  - Detect
+  - [nc]

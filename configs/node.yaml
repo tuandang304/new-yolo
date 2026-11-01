@@ -4,3 +4,83 @@ data_root: /tmp/visdrone/data
 tasks: [data, train]
 train: {model: yolo11n, epochs: 100, imgsz: 640, seeds: [1]}
 eval: {imgsz: [640, 1280], splits: [valid, test]}
+# R6c confirmation: lift x1.5 + P2-PAN at 640 px input, 100 epochs (official 100-ep recipe), seed 0, val only.
+# Round 4 R4c: 30-epoch screening, val only. See the experiment description. RAM cache off: at 1088 px it was killed on Kaggle (30 GB host RAM); does not change results.
+smoke: false
+data_root: /tmp/visdrone/data
+tasks:
+- data
+- train
+train:
+  model: r6c_100
+  epochs: 100
+  imgsz: 640
+  seeds:
+  - 0
+  arch:
+    yaml: models/pra_a20_p2.yaml
+  model: r4_r4c
+  epochs: 30
+  imgsz: 1088
+  seeds:
+  - 0
+  arch:
+    yaml: models/pra_a20_s32.yaml
+    head_c3: 32
+    stride_mult: 128
+    append_bottlenecks:
+    - layer: 9
+      n: 4
+    append_psa:
+    - layer: 11
+      n: 2
+    lowrank:
+      layers:
+      - 3
+      - 5
+      ratio: 0.5
+    detail_inject:
+      src: 2
+      dst: 17
+      - 19
+      ratio: 0.5
+    inherit:
+      ranges:
+      - - 0
+        - 6
+        - 0
+      - - 7
+        - 19
+        - 1
+      detect_levels:
+      - 0
+      - 0
+      - 1
+    detect_bu: true
+    lift:
+      layer: 1
+      scale: 1.5
+  extra:
+    workers: 8
+eval:
+  imgsz:
+  - 640
+        - 10
+        - 1
+      - - 11
+        - 17
+        - 2
+      - - 18
+        - 19
+        - 3
+      detect_levels:
+      - 0
+      - 1
+  extra:
+    workers: 8
+    cache: false
+eval:
+  imgsz:
+  - 1088
+  splits:
+  - valid
