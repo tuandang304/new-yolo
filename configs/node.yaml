@@ -1,15 +1,15 @@
-# r9b: see the experiment description and round7-plan.md.
+# r9b_s1: see the experiment description and round7-plan.md.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r9b
+  model: r9b_s1
   epochs: 100
   imgsz: 1280
   seeds:
-  - 0
+  - 1
   arch:
     yaml: models/pra_a20_o2m.yaml
     head_c3: 64
