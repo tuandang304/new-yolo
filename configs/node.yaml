@@ -1,3 +1,9 @@
+# Fine-tune yolo11n from its official COCO checkpoint; evaluate with the unified evaluator.
+smoke: false
+data_root: /tmp/visdrone/data
+tasks: [data, train]
+train: {model: yolo11n, epochs: 100, imgsz: 640, seeds: [1]}
+eval: {imgsz: [640, 1280], splits: [valid, test]}
 # R6c confirmation: lift x1.5 + P2-PAN at 640 px input, 100 epochs (official 100-ep recipe), seed 0, val only.
 # Round 4 R4c: 30-epoch screening, val only. See the experiment description. RAM cache off: at 1088 px it was killed on Kaggle (30 GB host RAM); does not change results.
 smoke: false
