@@ -1,28 +1,35 @@
-# T4 re-measurement of every number in the paper. No training; val only.
+# Public VisDrone checkpoints on T4, same evaluator as the re-measurement. No training; val only.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
-- measure
-measure:
+- public
+public:
+  target_GFLOPs: 15.47
   latency_images: 200
   latency_passes: 2
   n_warm: 30
   n_iter: 200
   models:
-  - {tag: hrn_s0, family: ultralytics, ckpt: weights/hrn_s0.pt, imgsz: 1280, latency: true, save_dets: true}
-  - {tag: hrn_s1, family: ultralytics, ckpt: weights/hrn_s1.pt, imgsz: 1280, latency: true, save_dets: false}
-  - {tag: hrn_s2, family: ultralytics, ckpt: weights/hrn_s2.pt, imgsz: 1280, latency: true, save_dets: false}
-  - {tag: yolo26n_s0, family: ultralytics, ckpt: weights/yolo26n_s0.pt, imgsz: 640, latency: true, single: true, save_dets: true}
-  - {tag: yolo26n_s1, family: ultralytics, ckpt: weights/yolo26n_s1.pt, imgsz: 640, latency: true, single: false, save_dets: false}
-  - {tag: yolo26n_s2, family: ultralytics, ckpt: weights/yolo26n_s2.pt, imgsz: 640, latency: true, single: false, save_dets: false}
-  - {tag: yolo11n_s0, family: ultralytics, ckpt: weights/yolo11n_s0.pt, imgsz: 640, latency: true, single: true, save_dets: false}
-  - {tag: yolo11n_s1, family: ultralytics, ckpt: weights/yolo11n_s1.pt, imgsz: 640, latency: true, single: false, save_dets: false}
-  - {tag: yolo11n_s2, family: ultralytics, ckpt: weights/yolo11n_s2.pt, imgsz: 640, latency: true, single: false, save_dets: false}
-  - {tag: yolov10n_s0, family: ultralytics, ckpt: weights/yolov10n_s0.pt, imgsz: 640, latency: true, single: true, save_dets: false}
-  - {tag: yolov10n_s1, family: ultralytics, ckpt: weights/yolov10n_s1.pt, imgsz: 640, latency: true, single: false, save_dets: false}
-  - {tag: yolov10n_s2, family: ultralytics, ckpt: weights/yolov10n_s2.pt, imgsz: 640, latency: true, single: false, save_dets: false}
-  - {tag: step_1024_o2o, family: ultralytics, ckpt: weights/step_1024_o2o.pt, imgsz: 1024}
-  - {tag: step_1280_o2o, family: ultralytics, ckpt: weights/step_1280_o2o.pt, imgsz: 1280}
-  - {tag: step_1280_noo2o, family: ultralytics, ckpt: weights/step_1280_noo2o.pt, imgsz: 1280}
-  - {tag: rfdetr_nano, family: rfdetr, imgsz: 640, pos_enc: 40, latency: true, save_dets: true}
+  - {repo: dronefreak/visdrone-yolo26n, file: best.pt, cost_match: true}
+  - {repo: dronefreak/visdrone-yolo11n, file: best.pt, cost_match: true}
+  - {repo: dronefreak/visdrone-yolov10n, file: best.pt, cost_match: true}
+  - {repo: dronefreak/visdrone-yolov8n, file: best.pt, cost_match: true}
+  - {repo: dronefreak/visdrone-yolov9t, file: best.pt, cost_match: true}
+  - {repo: dronefreak/visdrone-yolov8s, file: best.pt}
+  - {repo: dronefreak/visdrone-yolov9s, file: best.pt}
+  - {repo: dronefreak/visdrone-yolov10s, file: best.pt}
+  - {repo: dronefreak/visdrone-yolo11s, file: best.pt}
+  - {repo: dronefreak/visdrone-yolo26s, file: best.pt}
+  - {repo: mshamrai/yolov8n-visdrone, file: best.pt, cost_match: true}
+  - {repo: mshamrai/yolov8s-visdrone, file: best.pt, cost_match: false}
+  - {repo: erbayat/yolov11n-visdrone, file: best.pt, cost_match: true}
+  - {repo: erbayat/yolov11s-visdrone, file: yolo11s-visdrone.pt, cost_match: false}
+  - {repo: RISEF/yolov11s-visdrone, file: weights/best.pt, cost_match: false}
+  - {repo: Mamoun-alaoui/yolov8n-visdrone, file: best.pt, cost_match: true}
+  - {repo: yasserrmd/yolov8n-finetuned-visdrone, file: weights/best.pt, cost_match: true}
+  - {repo: ENOT-AutoDL/yolov8s_visdrone, file: baseline_ultralytics/weights/best.pt, cost_match: false}
+  - {repo: orirdx/yolo11s-visdrone, file: yolo11s-visdrone.pt, cost_match: false}
+  - {repo: dronefreak/visdrone-rfdetr-nano, file: checkpoint_best_total.pth, family: rfdetr, imgsz: 640, pos_enc: 40}
+  - {repo: dronefreak/visdrone-rfdetr-small, file: checkpoint_best_total.pth, family: rfdetr, imgsz: 640, pos_enc: 40}
+  - {repo: dronefreak/visdrone-rfdetr-medium, file: checkpoint_best_total.pth, family: rfdetr, imgsz: 640, pos_enc: 40}

@@ -196,6 +196,9 @@ def main() -> None:
             summary["tpu_probe"] = task_tpu_probe(cfg, root)
         elif task == "parity":
             summary["parity"] = task_parity(cfg, root)
+        elif task == "public":
+            from . import public
+            summary["public"] = public.run(cfg["public"], root, OUT)
         elif task == "measure":
             from . import measure
             summary["measure"] = measure.run(cfg["measure"], root, OUT)

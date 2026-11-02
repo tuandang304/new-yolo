@@ -50,7 +50,7 @@ def load(m: dict, device: str, top: int = 1000):
         return P.load_predictor("ultralytics", m["ckpt"], device=device)
     import rfdetr
     from huggingface_hub import hf_hub_download
-    ck = hf_hub_download(RF_REPO, RF_FILE)
+    ck = hf_hub_download(m.get("repo", RF_REPO), m.get("file", RF_FILE))
     pred = P.RFDETRPredictor.__new__(P.RFDETRPredictor)
     # The checkpoint is stripped of its config, so the published resolution and positional-encoding size are passed explicitly.
     pred.model = rfdetr.RFDETR.from_checkpoint(ck, trust_checkpoint=True, device=device, resolution=m["imgsz"], positional_encoding_size=m["pos_enc"])
