@@ -1,3 +1,4 @@
+# T4 re-measurement of every number in the paper. No training; val only.
 # Fine-tune yolo11n from its official COCO checkpoint; evaluate with the unified evaluator.
 smoke: false
 data_root: /tmp/visdrone/data
@@ -10,6 +11,29 @@ smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
+- measure
+measure:
+  latency_images: 200
+  latency_passes: 2
+  n_warm: 30
+  n_iter: 200
+  models:
+  - {tag: hrn_s0, family: ultralytics, ckpt: weights/hrn_s0.pt, imgsz: 1280, latency: true, save_dets: true}
+  - {tag: hrn_s1, family: ultralytics, ckpt: weights/hrn_s1.pt, imgsz: 1280, latency: true, save_dets: false}
+  - {tag: hrn_s2, family: ultralytics, ckpt: weights/hrn_s2.pt, imgsz: 1280, latency: true, save_dets: false}
+  - {tag: yolo26n_s0, family: ultralytics, ckpt: weights/yolo26n_s0.pt, imgsz: 640, latency: true, single: true, save_dets: true}
+  - {tag: yolo26n_s1, family: ultralytics, ckpt: weights/yolo26n_s1.pt, imgsz: 640, latency: true, single: false, save_dets: false}
+  - {tag: yolo26n_s2, family: ultralytics, ckpt: weights/yolo26n_s2.pt, imgsz: 640, latency: true, single: false, save_dets: false}
+  - {tag: yolo11n_s0, family: ultralytics, ckpt: weights/yolo11n_s0.pt, imgsz: 640, latency: true, single: true, save_dets: false}
+  - {tag: yolo11n_s1, family: ultralytics, ckpt: weights/yolo11n_s1.pt, imgsz: 640, latency: true, single: false, save_dets: false}
+  - {tag: yolo11n_s2, family: ultralytics, ckpt: weights/yolo11n_s2.pt, imgsz: 640, latency: true, single: false, save_dets: false}
+  - {tag: yolov10n_s0, family: ultralytics, ckpt: weights/yolov10n_s0.pt, imgsz: 640, latency: true, single: true, save_dets: false}
+  - {tag: yolov10n_s1, family: ultralytics, ckpt: weights/yolov10n_s1.pt, imgsz: 640, latency: true, single: false, save_dets: false}
+  - {tag: yolov10n_s2, family: ultralytics, ckpt: weights/yolov10n_s2.pt, imgsz: 640, latency: true, single: false, save_dets: false}
+  - {tag: step_1024_o2o, family: ultralytics, ckpt: weights/step_1024_o2o.pt, imgsz: 1024}
+  - {tag: step_1280_o2o, family: ultralytics, ckpt: weights/step_1280_o2o.pt, imgsz: 1280}
+  - {tag: step_1280_noo2o, family: ultralytics, ckpt: weights/step_1280_noo2o.pt, imgsz: 1280}
+  - {tag: rfdetr_nano, family: rfdetr, imgsz: 640, pos_enc: 40, latency: true, save_dets: true}
 - train
 train:
   model: r6c_100

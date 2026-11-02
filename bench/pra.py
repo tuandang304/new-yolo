@@ -16,6 +16,7 @@ An architecture is configured in configs/node.yaml as `train.arch`:
   lift:          {layer, scale} bilinearly upsamples the input of trunk conv `layer` by `scale` (keeps COCO tensors);
                  the trunk then runs on a finer grid, Detect strides are divided by `scale` (stride_mult must stay integral)
   detect_bu:     true adds a zero-init bottom-up residual P2->P3 inside Detect (level 0 -> level 1; no-op at init)
+  pair_loss:     {pairs: [[a, b], ...], mode: relax | sharpen, value} changes the class BCE for confusable pairs (training only)
 Every inherited tensor must match in shape unless `partial`; the count of transferred tensors is printed.
 """
 from __future__ import annotations
@@ -33,6 +34,10 @@ try:
     from ultralytics.nn.modules.conv import Conv as _Conv
 except Exception:  # pragma: no cover - ultralytics always present in runs
     _Conv = nn.Module
+try:
+    from ultralytics.nn.tasks import DetectionModel as _DetectionModel
+except Exception:  # pragma: no cover - ultralytics always present in runs
+    _DetectionModel = nn.Module
 
 
 class PooledConv(_Conv):
@@ -332,6 +337,41 @@ def svd_init(model, arch: dict) -> None:
         print(f"[pra] layer {i}: SVD rank {lr.a.out_channels}/{lr.b.conv.out_channels} retains {energy:.3f} energy", flush=True)
 
 
+class PairBCE(nn.Module):
+    """BCE for confusable class pairs. Applied to the class channels only, box weights keep the original targets.
+    relax: a positive of class a also targets its partner b at eps times its score.
+    sharpen: the partner channel of a positive gets its negative term weighted by w."""
+
+    def __init__(self, pairs: list, mode: str, value: float):
+        super().__init__()
+        self.pairs, self.mode, self.value = pairs, mode, value
+        self.bce = nn.BCEWithLogitsLoss(reduction="none")
+
+    def forward(self, pred, target):
+        if self.mode == "relax":
+            t = target.clone()
+            for a, b in self.pairs:
+                t[..., a] = torch.maximum(t[..., a], self.value * target[..., b])
+                t[..., b] = torch.maximum(t[..., b], self.value * target[..., a])
+            return self.bce(pred, t)
+        w = torch.ones_like(target)
+        for a, b in self.pairs:
+            w[..., a] = torch.where((target[..., b] > 0) & (target[..., a] == 0), self.value, w[..., a])
+            w[..., b] = torch.where((target[..., a] > 0) & (target[..., b] == 0), self.value, w[..., b])
+        return self.bce(pred, target) * w
+
+
+class PairLossModel(_DetectionModel):
+    """DetectionModel whose criterion uses PairBCE; `pair_loss` is set by the trainer (architecture unchanged)."""
+
+    def init_criterion(self):
+        c = super().init_criterion()
+        cfg = self.pair_loss
+        for part in (c.one2many, c.one2one) if hasattr(c, "one2many") else (c,):
+            part.bce = PairBCE(cfg["pairs"], cfg["mode"], cfg["value"])
+        return c
+
+
 def build(arch: dict, nc: int = 10, verbose: bool = False):
     from ultralytics.nn.tasks import DetectionModel
     m = DetectionModel(str(ROOT / arch["yaml"]), nc=nc, verbose=verbose)
@@ -348,6 +388,8 @@ def make_trainer(arch: dict):
             if arch.get("init", "yolo26n.pt"):
                 inherit(model, arch, arch.get("init", "yolo26n.pt"))
                 svd_init(model, arch)
+            if arch.get("pair_loss"):
+                model.__class__, model.pair_loss = PairLossModel, arch["pair_loss"]
             n_par = sum(p.numel() for p in model.parameters())
             print(f"[pra] arch={arch} params={n_par / 1e6:.3f}M", flush=True)
             return model
