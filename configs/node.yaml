@@ -16,3 +16,4 @@ measure:
   - {tag: r11sb_s0, family: ultralytics, ckpt: weights/r11sb_s0.pt, imgsz: 1280, latency: true, save_dets: false}
   - {tag: r11sd_s0, family: ultralytics, ckpt: weights/r11sd_s0.pt, imgsz: 1280, latency: true, save_dets: false}
   - {tag: r11se_s0, family: ultralytics, ckpt: weights/r11se_s0.pt, imgsz: 1280, latency: true, save_dets: false}
+  - {tag: r11sf_s0, family: ultralytics, ckpt: weights/r11sf_s0.pt, imgsz: 1280, latency: true, save_dets: false}
