@@ -24,6 +24,8 @@ An architecture is configured in configs/node.yaml as `train.arch`:
   head_ctx:      {src, dim} stride-64 context skip into each Detect classification branch (src is an extra Detect input)
   head_fb:       true adds P4 -> P3 feedback inside Detect: P3 += sigmoid(a(P3)) * up(f(P4))
   head_b2c:      true adds a box -> class edge per level: cls input += g(first box-branch conv output)
+  framework:     {type: hr, at, src: [s4, s8, s16, ctx], cs: [c4, c8, c16], units, k, e} G40 new neck replacing the PAN
+                 (placeholders in the YAML; see framework_surgery)
 Every inherited tensor must match in shape unless `partial`; the count of transferred tensors is printed.
 """
 from __future__ import annotations
@@ -280,6 +282,8 @@ class LowRankConv(nn.Module):
 def surgery(model, arch: dict) -> None:
     from ultralytics.nn.modules.conv import Conv, DWConv
     seq = model.model
+    if arch.get("framework"):
+        framework_surgery(model, arch)
     if arch.get("pooled_first") is not None:
         m = seq[arch["pooled_first"]]
         assert type(m) is Conv, m
@@ -551,3 +555,114 @@ def make_trainer(arch: dict):
             return model
 
     return PRATrainer
+
+
+# ---- G40 frameworks: a new neck + head on the Stack B backbone ----
+class RepLKBlock(nn.Module):
+    """Re-parameterisable large-kernel block: x + PW(PW_e(DW_k(x) + DW_3(x))). The DW 3x3 branch can be folded into
+    the DW kxk kernel after training (RepLKNet-style); both are BN-ed convs here."""
+
+    def __init__(self, c: int, k: int = 7, e: int = 2):
+        super().__init__()
+        self.dwk = _Conv(c, c, k, 1, g=c, act=False)
+        self.dw3 = _Conv(c, c, 3, 1, g=c, act=False)
+        self.pw1 = _Conv(c, c * e, 1, 1)
+        self.pw2 = _Conv(c * e, c, 1, 1, act=False)
+
+    def forward(self, x):
+        return x + self.pw2(self.pw1(F.silu(self.dwk(x) + self.dw3(x))))
+
+
+class ParallelDown(nn.Module):
+    """Stride-2 parallel downsampling: cat(DWConv 3x3 s2, MaxPool 2) -> 1x1 to c2."""
+
+    def __init__(self, c1: int, c2: int):
+        super().__init__()
+        self.dw = _Conv(c1, c1, 3, 2, g=c1, act=False)
+        self.pw = _Conv(2 * c1, c2, 1, 1)
+
+    def forward(self, x):
+        return self.pw(torch.cat([self.dw(x), F.max_pool2d(x, 2)], 1))
+
+
+class Exchange(nn.Module):
+    """All-to-all exchange between parallel streams; each target fuses its inputs with per-pixel softmax weights."""
+
+    def __init__(self, cs: list):
+        super().__init__()
+        self.n = n = len(cs)
+        self.t = nn.ModuleDict()
+        for i in range(n):
+            for j in range(n):
+                if i < j:  # finer -> coarser: parallel downsampling, chained per octave
+                    steps = [ParallelDown(cs[i], cs[i]) for _ in range(j - i - 1)] + [ParallelDown(cs[i], cs[j])]
+                    self.t[f"{i}_{j}"] = nn.Sequential(*steps)
+                elif i > j:  # coarser -> finer: 1x1 then nearest upsample
+                    self.t[f"{i}_{j}"] = _Conv(cs[i], cs[j], 1, 1, act=False)
+        self.w = nn.ModuleList(nn.Conv2d(cs[j], n, 1) for j in range(n))
+        for w in self.w:  # start as "keep own stream": weight on self dominates the softmax
+            nn.init.zeros_(w.weight)
+            with torch.no_grad():
+                w.bias.fill_(0.0)
+                w.bias[list(self.w).index(w)] = 2.0
+
+    def forward(self, xs):
+        out = []
+        for j in range(self.n):
+            a = self.w[j](xs[j]).softmax(1)
+            y = a[:, j:j + 1] * xs[j]
+            for i in range(self.n):
+                if i == j:
+                    continue
+                z = self.t[f"{i}_{j}"](xs[i])
+                if i > j:
+                    z = F.interpolate(z, size=xs[j].shape[2:], mode="nearest")
+                y = y + a[:, i:i + 1] * z
+            out.append(y)
+        return out
+
+
+class HRNeck(nn.Module):
+    """Parallel multi-resolution neck (Framework A). Inputs [stride-4, stride-8, stride-16, context]; returns the list of
+    stream outputs (finest first). Context (any coarser stride) is projected and added to the coarsest stream."""
+
+    def __init__(self, cin: list, cs: list, units: int = 3, k: int = 7, e: int = 2, cctx: int = 0):
+        super().__init__()
+        self.inp = nn.ModuleList(_Conv(a, b, 1, 1) for a, b in zip(cin, cs))
+        self.ctx = _Conv(cctx, cs[-1], 1, 1) if cctx else None
+        self.blocks = nn.ModuleList(nn.ModuleList(RepLKBlock(c, k, e) for c in cs) for _ in range(units))
+        self.ex = nn.ModuleList(Exchange(cs) for _ in range(units))
+
+    def forward(self, x):
+        feats, ctx = (x[:-1], x[-1]) if self.ctx is not None else (x, None)
+        xs = [m(f) for m, f in zip(self.inp, feats)]
+        if ctx is not None:
+            xs[-1] = xs[-1] + F.interpolate(self.ctx(ctx), size=xs[-1].shape[2:], mode="nearest")
+        for blk, ex in zip(self.blocks, self.ex):
+            xs = ex([b(t) for b, t in zip(blk, xs)])
+        return xs
+
+
+def framework_surgery(model, arch: dict) -> None:
+    """Replace placeholder layers with a framework neck. The YAML puts a placeholder at index `at` followed by one
+    placeholder per Detect level (1x1 convs with the right output strides/channels, so Ultralytics computes strides);
+    here `at` becomes the neck (fed by `src`) and the per-level placeholders become Index(k) of its output list."""
+    from ultralytics.nn.modules.conv import Index
+    fw = arch["framework"]
+    seq = model.model
+    at, src = fw["at"], fw["src"]
+    if fw["type"] == "hr":
+        cin = [seq[s].cv2.conv.out_channels if hasattr(seq[s], "cv2") else seq[s].conv.out_channels for s in src[:-1]]
+        cctx = seq[src[-1]].cv2.conv.out_channels if fw.get("ctx", True) else 0
+        neck = HRNeck(cin, fw["cs"], fw.get("units", 3), fw.get("k", 7), fw.get("e", 2), cctx)
+    else:
+        raise ValueError(fw["type"])
+    neck.i, neck.f, neck.type = at, list(src), f"bench.pra.{type(neck).__name__}"
+    neck.np = sum(p.numel() for p in neck.parameters())
+    seq[at] = neck
+    for k in range(len(fw["cs"])):
+        old = seq[at + 1 + k]
+        idx = Index(k)
+        idx.i, idx.f, idx.type, idx.np = old.i, at, "ultralytics.nn.modules.conv.Index", 0
+        seq[at + 1 + k] = idx
+    model.save = sorted(set(model.save) | set(src) | {at})
