@@ -1,18 +1,21 @@
-# R11 Stack B: Stack A + S4 + S6. Round 11 screen: 30 epochs, seed 0, batch 8 on one Kaggle T4.
+# G40 F-A (HR-Exchange framework): Stack B backbone + new parallel-stream neck and 3-level head. 30 epochs, seed 0, batch 8, MuSGD lr0 0.01, one Kaggle T4.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r11sb
+  model: g40fa
   epochs: 30
   imgsz: 1280
   seeds:
   - 0
   arch:
-    yaml: models/pra_a20_o2m.yaml
-    head_c3: 64
+    yaml: models/g40_fa_hr.yaml
+    head_c3:
+    - 32
+    - 96
+    - 128
     stride_mult: 64
     lowrank:
       layers:
@@ -26,25 +29,35 @@ train:
         - 6
         - 0
       - - 7
-        - 19
+        - 10
         - 1
-      detect_levels:
-      - 0
-      - 1
-    head_fb: true
-    head_ctx:
-      src: 11
-      dim: 32
     win_attn:
       layer: 6
       dim: 32
       heads: 2
       win: 8
-    head_b2c: true
+    framework:
+      type: hr
+      at: 12
+      src:
+      - 2
+      - 4
+      - 6
+      - 11
+      cs:
+      - 32
+      - 96
+      - 160
+      units: 3
+      k: 7
+      e: 2
   extra:
     workers: 8
     cache: false
     batch: 8
+    optimizer: MuSGD
+    lr0: 0.01
+    warmup_bias_lr: 0.0
 eval:
   imgsz:
   - 1280
