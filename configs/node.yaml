@@ -1,11 +1,11 @@
-# R11 Stack A: S1+S2+R+no DIM. Round 11 screen: 30 epochs, seed 0, batch 8 on one Kaggle T4.
+# R12 Stack L. Round 12 screen: 30 epochs, seed 0, batch 8 on one Kaggle T4.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r11sa
+  model: r12sl
   epochs: 30
   imgsz: 1280
   seeds:
@@ -35,6 +35,13 @@ train:
     head_ctx:
       src: 11
       dim: 32
+    r12_head:
+      freq: true
+      edge_l3: true
+      mona:
+        pos: par
+        split: true
+        ctx: true
   extra:
     workers: 8
     cache: false
