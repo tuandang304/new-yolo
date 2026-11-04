@@ -1,12 +1,12 @@
-# r9b: see the experiment description and round7-plan.md.
+# R11 S1 head context skip. Round 11 screen: 30 epochs, seed 0, batch 8 on one Kaggle T4.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r9b
-  epochs: 100
+  model: r11s1
+  epochs: 30
   imgsz: 1280
   seeds:
   - 0
@@ -39,9 +39,13 @@ train:
       detect_levels:
       - 0
       - 1
+    head_ctx:
+      src: 11
+      dim: 32
   extra:
     workers: 8
     cache: false
+    batch: 8
 eval:
   imgsz:
   - 1280
