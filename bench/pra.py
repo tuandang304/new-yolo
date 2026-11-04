@@ -17,6 +17,13 @@ An architecture is configured in configs/node.yaml as `train.arch`:
                  the trunk then runs on a finer grid, Detect strides are divided by `scale` (stride_mult must stay integral)
   detect_bu:     true adds a zero-init bottom-up residual P2->P3 inside Detect (level 0 -> level 1; no-op at init)
   pair_loss:     {pairs: [[a, b], ...], mode: relax | sharpen, value} changes the class BCE for confusable pairs (training only)
+  detail_inject also takes ch (default 16) and dw (true: 3x3 depthwise after the space-to-depth).
+  Round 11 modules; every one is an exact identity at step 0 (last BN gain = 0):
+  win_attn:      {layer, dim, heads, win} window self-attention residual after C3k2 `layer` (Swin-style, one block)
+  ctx_xattn:     {layer, src, dim, heads} cross-attention residual after C3k2 `layer`: queries from it, keys/values from `src`
+  head_ctx:      {src, dim} stride-64 context skip into each Detect classification branch (src is an extra Detect input)
+  head_fb:       true adds P4 -> P3 feedback inside Detect: P3 += sigmoid(a(P3)) * up(f(P4))
+  head_b2c:      true adds a box -> class edge per level: cls input += g(first box-branch conv output)
 Every inherited tensor must match in shape unless `partial`; the count of transferred tensors is printed.
 """
 from __future__ import annotations
@@ -75,6 +82,44 @@ class DetectBU(_Detect):
         return super().forward(x)
 
 
+class R11Detect(_Detect):
+    """Detect with optional round-11 additions, each a zero contribution at step 0:
+    ctx  - stride-64 context (extra last input) projected once, upsampled and added to every classification input;
+    fb   - P4 -> P3 feedback: P3 += sigmoid(fba(P3)) * up(fb(P4));
+    b2c  - box -> class edge: classification input += b2c(first box-branch conv output)."""
+
+    def forward(self, x):
+        x = list(x)
+        self._ctxf = self.ctx(x.pop()) if getattr(self, "ctx", None) is not None else None
+        if getattr(self, "fb", None) is not None:
+            f = F.interpolate(self.fb(x[1]), size=x[0].shape[2:], mode="nearest")
+            x[0] = x[0] + torch.sigmoid(self.fba(x[0])) * f
+        try:
+            return super().forward(x)
+        finally:
+            self._ctxf = None
+
+    def forward_head(self, x, box_head=None, cls_head=None):
+        if box_head is None or cls_head is None:
+            return {}
+        bs = x[0].shape[0]
+        b2c, ctxf = getattr(self, "b2c", None), getattr(self, "_ctxf", None)
+        boxes, scores = [], []
+        for i in range(self.nl):
+            xi, ci = x[i], x[i]
+            if b2c is not None:
+                h = box_head[i][0](xi)
+                b = box_head[i][2](box_head[i][1](h))
+                ci = ci + b2c[i](h)
+            else:
+                b = box_head[i](xi)
+            if ctxf is not None:
+                ci = ci + self.ctxo[i](F.interpolate(ctxf, size=xi.shape[2:], mode="nearest"))
+            boxes.append(b.view(bs, 4 * self.reg_max, -1))
+            scores.append(cls_head[i](ci).view(bs, self.nc, -1))
+        return {"boxes": torch.cat(boxes, dim=-1), "scores": torch.cat(scores, dim=-1), "feats": x}
+
+
 class SPDConv(nn.Module):
     """Space-to-depth (PixelUnshuffle x2) + Conv-BN-SiLU 1x1: stride-2 without discarding pixels."""
 
@@ -110,6 +155,78 @@ class C3k2Detail(_C3k2):
     def forward(self, inputs):
         x, d = inputs
         return super().forward(x) + self.dz(d)
+
+
+def _zero_bn(conv) -> None:
+    nn.init.zeros_(conv.bn.weight)
+
+
+class WinAttn(nn.Module):
+    """One Swin-style window self-attention block as a zero-init residual: x + proj(attn(qkv(x)) + pe(v))."""
+
+    def __init__(self, c: int, dim: int = 32, heads: int = 2, win: int = 8):
+        super().__init__()
+        self.dim, self.heads, self.win = dim, heads, win
+        self.qkv = _Conv(c, 3 * dim, 1, act=False)
+        self.pe = _Conv(dim, dim, 3, g=dim, act=False)
+        self.proj = _Conv(dim, c, 1, act=False)
+        _zero_bn(self.proj)
+
+    def forward(self, x):
+        B, _, H, W = x.shape
+        w, h, d = self.win, self.heads, self.dim
+        dh = d // h
+        qkv = self.qkv(x)
+        ph, pw = (-H) % w, (-W) % w
+        if ph or pw:
+            qkv = F.pad(qkv, (0, pw, 0, ph))
+        Hp, Wp = H + ph, W + pw
+        q, k, v = qkv.split(d, 1)
+
+        def part(t):  # B, d, Hp, Wp -> B*nW, h, w*w, dh
+            t = t.reshape(B, h, dh, Hp // w, w, Wp // w, w).permute(0, 3, 5, 1, 4, 6, 2)
+            return t.reshape(-1, h, w * w, dh)
+
+        o = F.scaled_dot_product_attention(part(q), part(k), part(v))
+        o = o.reshape(B, Hp // w, Wp // w, h, w, w, dh).permute(0, 3, 6, 1, 4, 2, 5).reshape(B, d, Hp, Wp)
+        o = o[:, :, :H, :W] + self.pe(v[:, :, :H, :W])
+        return x + self.proj(o)
+
+
+class C3k2Win(_C3k2):
+    """C3k2 followed by a zero-init window-attention residual."""
+
+    def forward(self, x):
+        return self.wa(super().forward(x))
+
+
+class XAttn(nn.Module):
+    """Cross-attention residual term: queries from y (every location), keys/values from a coarse context map c."""
+
+    def __init__(self, cq: int, ck: int, dim: int = 32, heads: int = 2):
+        super().__init__()
+        self.dim, self.heads = dim, heads
+        self.q = _Conv(cq, dim, 1, act=False)
+        self.kv = _Conv(ck, 2 * dim, 1, act=False)
+        self.proj = _Conv(dim, cq, 1, act=False)
+        _zero_bn(self.proj)
+
+    def forward(self, y, c):
+        B, _, H, W = y.shape
+        h, d = self.heads, self.dim
+        q = self.q(y).reshape(B, h, d // h, H * W).transpose(-1, -2)
+        k, v = (t.reshape(B, h, d // h, -1).transpose(-1, -2) for t in self.kv(c).split(d, 1))
+        o = F.scaled_dot_product_attention(q, k, v).transpose(-1, -2).reshape(B, d, H, W)
+        return self.proj(o)
+
+
+class C3k2XAttn(_C3k2):
+    """C3k2 taking [x, context]: y = C3k2(x) + xa(C3k2(x), context), zero at init."""
+
+    def forward(self, inputs):
+        x, c = inputs
+        y = super().forward(x)
+        return y + self.xa(y, c)
 
 
 class ZeroResBottleneck(nn.Module):
@@ -229,8 +346,11 @@ def surgery(model, arch: dict) -> None:
         cs, c = seq[src].cv2.conv.out_channels, m.cv2.conv.out_channels
         m.__class__ = C3k2Detail
         cd = arch["detail_inject"].get("ch", 16)  # thin 1x1 first: the stride-4 map is the most expensive place to spend FLOPs
-        m.dz = nn.Sequential(_Conv(cs, cd, 1, 1), nn.PixelUnshuffle(2), _Conv(4 * cd, c, 1, 1, act=False))
-        nn.init.zeros_(m.dz[2].bn.weight)
+        parts = [_Conv(cs, cd, 1, 1), nn.PixelUnshuffle(2)]
+        if arch["detail_inject"].get("dw"):  # 3x3 depthwise after space-to-depth: spatial mixing on the detail path
+            parts.append(DWConv(4 * cd, 4 * cd, 3))
+        m.dz = nn.Sequential(*parts, _Conv(4 * cd, c, 1, 1, act=False))
+        nn.init.zeros_(m.dz[-1].bn.weight)
         m.f = [m.f, src]
         model.save = sorted(set(model.save) | {src})
         m.np = sum(p.numel() for p in m.parameters())
@@ -262,6 +382,45 @@ def surgery(model, arch: dict) -> None:
         if getattr(det, "one2one_cv3", None) is not None:
             import copy
             det.one2one_cv3 = copy.deepcopy(lite)
+    if arch.get("win_attn"):
+        wa = arch["win_attn"]
+        m = seq[wa["layer"]]
+        assert type(m).__name__ == "C3k2", (wa, type(m))
+        m.__class__ = C3k2Win
+        m.wa = WinAttn(m.cv2.conv.out_channels, wa.get("dim", 32), wa.get("heads", 2), wa.get("win", 8))
+        m.np = sum(p.numel() for p in m.parameters())
+    if arch.get("ctx_xattn"):
+        xa = arch["ctx_xattn"]
+        m = seq[xa["layer"]]
+        assert type(m).__name__ == "C3k2", (xa, type(m))
+        m.__class__ = C3k2XAttn
+        ck = seq[xa["src"]].cv2.conv.out_channels
+        m.xa = XAttn(m.cv2.conv.out_channels, ck, xa.get("dim", 32), xa.get("heads", 2))
+        m.f = [m.f, xa["src"]]
+        model.save = sorted(set(model.save) | {xa["src"]})
+        m.np = sum(p.numel() for p in m.parameters())
+    if arch.get("head_ctx") or arch.get("head_fb") or arch.get("head_b2c"):
+        assert type(det) is _Detect, type(det)
+        chx = [s[0].conv.in_channels for s in det.cv2]
+        det.__class__ = R11Detect
+        if arch.get("head_ctx"):
+            hc = arch["head_ctx"]
+            ck, d = seq[hc["src"]].cv2.conv.out_channels, hc.get("dim", 32)
+            det.ctx = Conv(ck, d, 1, 1)  # normal init (with SiLU): only the per-level outputs start at zero
+            det.ctxo = nn.ModuleList(Conv(d, c, 1, 1, act=False) for c in chx)
+            for o in det.ctxo:
+                _zero_bn(o)
+            det.f = [*det.f, hc["src"]]
+            model.save = sorted(set(model.save) | {hc["src"]})
+        if arch.get("head_fb"):
+            det.fb = Conv(chx[1], chx[0], 1, 1, act=False)
+            _zero_bn(det.fb)
+            det.fba = nn.Conv2d(chx[0], 1, 1)
+        if arch.get("head_b2c"):
+            cb = [s[0].conv.out_channels for s in det.cv2]
+            det.b2c = nn.ModuleList(Conv(b, c, 1, 1, act=False) for b, c in zip(cb, chx))
+            for o in det.b2c:
+                _zero_bn(o)
     if hasattr(det, "bias_init"):
         det.bias_init()
     if arch.get("stride_mult"):

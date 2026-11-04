@@ -1,3 +1,4 @@
+# R11 Stack A: S1+S2+R+no DIM. Round 11 screen: 30 epochs, seed 0, batch 8 on one Kaggle T4.
 # T4 re-measurement of every number in the paper. No training; val only.
 # Fine-tune yolo11n from its official COCO checkpoint; evaluate with the unified evaluator.
 smoke: false
@@ -36,6 +37,15 @@ measure:
   - {tag: rfdetr_nano, family: rfdetr, imgsz: 640, pos_enc: 40, latency: true, save_dets: true}
 - train
 train:
+  model: r11sa
+  epochs: 30
+  imgsz: 1280
+  seeds:
+  - 0
+  arch:
+    yaml: models/pra_a20_o2m.yaml
+    head_c3: 64
+    stride_mult: 64
   model: r6c_100
   epochs: 100
   imgsz: 640
@@ -62,6 +72,7 @@ train:
       layers:
       - 3
       - 5
+      - 8
       ratio: 0.5
     detail_inject:
       src: 2
@@ -100,9 +111,14 @@ eval:
       detect_levels:
       - 0
       - 1
+    head_fb: true
+    head_ctx:
+      src: 11
+      dim: 32
   extra:
     workers: 8
     cache: false
+    batch: 8
 eval:
   imgsz:
   - 1088
