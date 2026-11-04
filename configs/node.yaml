@@ -1,12 +1,12 @@
-# R12 Stack J. Round 12 screen: 30 epochs, seed 0, batch 8 on one Kaggle T4.
+# R12 J 100 ep. 100-epoch confirm, seed 0, R9b recipe (batch 16).
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r12sj
-  epochs: 30
+  model: r12j100
+  epochs: 100
   imgsz: 1280
   seeds:
   - 0
@@ -43,7 +43,6 @@ train:
   extra:
     workers: 8
     cache: false
-    batch: 8
 eval:
   imgsz:
   - 1280
