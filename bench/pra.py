@@ -26,7 +26,7 @@ An architecture is configured in configs/node.yaml as `train.arch`:
   head_b2c:      true adds a box -> class edge per level: cls input += g(first box-branch conv output)
   hier:          {mode: product|sum, weight, groups} superclass x fine class head + auxiliary superclass BCE
   head_cls_depth: number of DW+1x1 pairs in the lite class tower (default 2)
-  framework:     {type: hr|hex, at, src: [s4, s8, s16, ctx], cs: [c4, c8, c16], units, k, e} G40 new neck replacing the PAN
+  framework:     {type: hr|hex|gd, at, src: [s4, s8, s16, ctx], cs: [c4, c8, c16], units, k, e} G40 new neck replacing the PAN
                  (placeholders in the YAML; see framework_surgery)
 Every inherited tensor must match in shape unless `partial`; the count of transferred tensors is printed.
 """
@@ -562,6 +562,11 @@ def make_trainer(arch: dict):
             if arch.get("init", "yolo26n.pt"):
                 inherit(model, arch, arch.get("init", "yolo26n.pt"))
                 svd_init(model, arch)
+                fw = arch.get("framework") or {}
+                if hasattr(model.model[fw.get("at", 0)], "load_coco"):
+                    from ultralytics.nn.tasks import load_checkpoint
+                    n = model.model[fw["at"]].load_coco(load_checkpoint(arch.get("init", "yolo26n.pt"))[0].float().state_dict())
+                    print(f"[pra] framework neck: {n} COCO tensors copied into its stems", flush=True)
             if arch.get("pair_loss"):
                 model.__class__, model.pair_loss = PairLossModel, arch["pair_loss"]
             if arch.get("hier"):
@@ -674,8 +679,15 @@ def framework_surgery(model, arch: dict) -> None:
     elif fw["type"] == "hex":
         oc = lambda s_: seq[s_].cv2.conv.out_channels
         neck = HexNeck(oc(src[0]), oc(src[1]), oc(src[2]), oc(src[3]), fw["cs"][0], fw["cs"][1], fw.get("cap", 5), fw.get("k", 7))
+    elif fw["type"] == "gd":
+        oc = lambda s_: seq[s_].cv2.conv.out_channels
+        c4, c8, c16 = fw["cs"]
+        neck = GDNeck(oc(src[0]), oc(src[1]), oc(src[2]), oc(src[3]), c4, c8, c16, fw.get("hub", 96), fw.get("nhub", 2))
     else:
         raise ValueError(fw["type"])
+    for mm in neck.modules():  # Ultralytics BN settings (initialize_weights runs before surgery)
+        if isinstance(mm, nn.BatchNorm2d):
+            mm.eps, mm.momentum = 1e-3, 0.03
     neck.i, neck.f, neck.type = at, list(src), f"bench.pra.{type(neck).__name__}"
     neck.np = sum(p.numel() for p in neck.parameters())
     seq[at] = neck
@@ -842,3 +854,124 @@ class HierLossModel(_DetectionModel):
         c.sup_members = [[k for k, s in enumerate(sup) if s == j] for j in range(max(sup) + 1)]
         c.sup_weight = self.hier_weight
         return c
+
+
+# ---- Framework C (HR-GD-HHD, proposed by the Antigravity harness; simplified) ----
+class PDDown(nn.Module):
+    """Parallel downsampling (stride 2): cat(1x1(DW3 s2 x), 1x1(AvgPool2 x)) -> c2 (half the channels from each path)."""
+
+    def __init__(self, c1: int, c2: int, zero: bool = False):
+        super().__init__()
+        self.a = nn.Sequential(_Conv(c1, c1, 3, 2, g=c1, act=False), _Conv(c1, c2 // 2, 1, 1, act=zero is False))
+        self.b = _Conv(c1, c2 - c2 // 2, 1, 1, act=zero is False)
+        if zero:
+            _zero_bn(self.a[-1]), _zero_bn(self.b)
+
+    def forward(self, x):
+        return torch.cat([self.a(x), self.b(F.avg_pool2d(x, 2))], 1)
+
+
+class PolyKernelLSK(nn.Module):
+    """Re-parameterisable poly-kernel block with a selective spatial gate:
+    y = 1x1(x); d = DW3(y)+DW5(y)+DW9(y)+DW1x11(y)+DW11x1(y) (all fold into one DW 11x11 at deploy);
+    a = sigmoid(conv7x7([mean_c d, max_c d])); out = x + 1x1(d * a)."""
+
+    def __init__(self, c: int):
+        super().__init__()
+        self.pw1 = _Conv(c, c, 1, 1)
+        self.dws = nn.ModuleList([nn.Conv2d(c, c, k, 1, k // 2, groups=c, bias=False) for k in (3, 5, 9)] +
+                                 [nn.Conv2d(c, c, (1, 11), 1, (0, 5), groups=c, bias=False),
+                                  nn.Conv2d(c, c, (11, 1), 1, (5, 0), groups=c, bias=False)])
+        self.bn = nn.BatchNorm2d(c)
+        self.gate = nn.Conv2d(2, 1, 7, 1, 3)
+        self.pw2 = _Conv(c, c, 1, 1, act=False)
+
+    def forward(self, x):
+        y = self.pw1(x)
+        d = F.silu(self.bn(sum(m(y) for m in self.dws)))
+        a = torch.sigmoid(self.gate(torch.cat([d.mean(1, keepdim=True), d.amax(1, keepdim=True)], 1)))
+        return x + self.pw2(d * a)
+
+
+class GatedInject(nn.Module):
+    """Distribute: s * (1 + tanh(G)) + V with [G, V] from the hub; zero-init (identity at step 0)."""
+
+    def __init__(self, ch: int, c: int, mode: str):
+        super().__init__()
+        self.mode = mode
+        if mode == "up":  # hub at stride 8 -> stride 4
+            self.f = nn.Sequential(_Conv(ch, 2 * c, 1, 1, act=False))
+        elif mode == "same":
+            self.f = _Conv(ch, 2 * c, 1, 1, g=2 if ch % 2 == 0 and (2 * c) % 2 == 0 else 1, act=False)
+        else:  # down: hub -> stride 16
+            self.f = nn.Sequential(PDDown(ch, ch), _Conv(ch, 2 * c, 1, 1, act=False))
+        _zero_bn(self.f[-1] if isinstance(self.f, nn.Sequential) else self.f)
+
+    def forward(self, s, hub):
+        gv = self.f(hub)
+        if self.mode == "up":
+            gv = F.interpolate(gv, size=s.shape[2:], mode="nearest")
+        g, v = gv.chunk(2, 1)
+        return s * (1 + torch.tanh(g)) + v
+
+
+class GDNeck(nn.Module):
+    """Framework C neck. Inputs [L2 (s4), L4 (s8), L6 (s16), L11 (ctx)]; returns [P2, P3, P4].
+    Stems s16/s8 have the exact shapes of yolo26n L13/L16 (C3k2 384->128, 256->64) so they take COCO weights."""
+
+    def __init__(self, c2in: int, c4in: int, c6in: int, cctx: int, c4: int = 32, c8: int = 64, c16: int = 128,
+                 hub: int = 96, nhub: int = 2):
+        super().__init__()
+        from ultralytics.nn.modules.block import C3k2
+        self.s16_stem = C3k2(cctx + c6in, c16, 1, True)      # = yolo26n model.13 (C3k2 384 -> 128, c3k)
+        self.freq_up = _Conv(c16, c16, 3, 1, g=c16, act=False)  # low-pass DW before x2 upsample
+        with torch.no_grad():  # starts as identity so the s8 stem reproduces the COCO top-down path exactly
+            self.freq_up.conv.weight.zero_()
+            self.freq_up.conv.weight[:, :, 1, 1] = 1.0
+            self.freq_up.bn.eps = 1e-3
+            self.freq_up.bn.weight.fill_((1 + 1e-3) ** 0.5)  # BN(x) = x exactly with running var 1
+        self.s8_stem = C3k2(c16 + c4in, c8, 1, True)          # = yolo26n model.16 (C3k2 256 -> 64, c3k)
+        self.hp = nn.Parameter(torch.zeros(1, c2in, 1, 1))     # adaptive high-pass on L2, zero-init
+        self.s4_stem = nn.Sequential(_Conv(c2in, c4, 1, 1), _Conv(c4, c4, 3, 1, g=c4), _Conv(c4, c4, 1, 1))
+        self.g4, self.g16, self.gctx = PDDown(c4, c4), _Conv(c16, 64, 1, 1), _Conv(cctx, 32, 1, 1)
+        self.g16dw = _Conv(64, 64, 3, 1, g=64, act=False)
+        self.gfuse = _Conv(c4 + c8 + 64 + 32, hub, 1, 1)
+        self.hub = nn.Sequential(*[PolyKernelLSK(hub) for _ in range(nhub)])
+        self.d4, self.d8, self.d16 = GatedInject(hub, c4, "up"), GatedInject(hub, c8, "same"), GatedInject(hub, c16, "down")
+        self.p2_in = nn.Sequential(_Conv(c8, c4, 1, 1, act=False), _Conv(c4, c4, 3, 1, g=c4, act=False))
+        _zero_bn(self.p2_in[0])
+        self.p2_dw5, self.p2_dw3, self.p2_pw = _Conv(c4, c4, 5, 1, g=c4, act=False), _Conv(c4, c4, 3, 1, g=c4, act=False), _Conv(c4, c4, 1, 1)
+        self.p3_from2, self.p3_from16 = PDDown(c4, c8, zero=True), _Conv(c16, c8, 1, 1, act=False)
+        _zero_bn(self.p3_from16)
+        self.p3_blk = C3k2(c8, c8, 1, True)
+        self.p4_down = PDDown(c8, c8)
+        self.p4_blk = C3k2(c8 + c16, c16, 1, True)
+
+    def forward(self, x):
+        l2, l4, l6, l11 = x
+        s16 = self.s16_stem(torch.cat([F.interpolate(l11, size=l6.shape[2:], mode="nearest"), l6], 1))
+        s8 = self.s8_stem(torch.cat([F.interpolate(self.freq_up(s16), size=l4.shape[2:], mode="nearest"), l4], 1))
+        s4 = self.s4_stem(l2 + self.hp * (l2 - F.avg_pool2d(l2, 3, 1, 1)))
+        hz = s8.shape[2:]
+        g = torch.cat([self.g4(s4), s8, F.interpolate(self.g16dw(self.g16(s16)), size=hz, mode="nearest"),
+                       F.interpolate(self.gctx(l11), size=hz, mode="nearest")], 1)
+        hub = self.hub(self.gfuse(g))
+        s4, s8, s16 = self.d4(s4, hub), self.d8(s8, hub), self.d16(s16, hub)
+        y = s4 + F.interpolate(self.p2_in(s8), size=s4.shape[2:], mode="nearest")
+        p2 = y + self.p2_pw(F.silu(self.p2_dw5(y) + self.p2_dw3(y)))
+        p3 = self.p3_blk(s8 + self.p3_from2(p2) + F.interpolate(self.p3_from16(s16), size=hz, mode="nearest"))
+        p4 = self.p4_blk(torch.cat([self.p4_down(p3), s16], 1))
+        return [p2, p3, p4]
+
+    @torch.no_grad()
+    def load_coco(self, sd: dict) -> int:
+        """Copy yolo26n model.13 -> s16_stem and model.16 -> s8_stem (exact shapes). Returns tensors copied."""
+        n = 0
+        for name, idx in (("s16_stem", 13), ("s8_stem", 16)):
+            mod = getattr(self, name)
+            for k, v in mod.state_dict().items():
+                src = sd.get(f"model.{idx}.{k}")
+                if src is not None and src.shape == v.shape:
+                    v.copy_(src)
+                    n += 1
+        return n

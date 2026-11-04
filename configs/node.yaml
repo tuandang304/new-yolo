@@ -1,18 +1,21 @@
-# G40 F-B (HexNet framework, proposed by OpenCode): Stack B backbone + two-stream exchange neck + hierarchical head. 30 epochs, seed 0, batch 8, MuSGD lr0 0.01, one Kaggle T4.
+# G40 F-C (HR-GD-HHD framework, proposed by Antigravity, simplified): Stack B backbone + gather-and-distribute hub neck + taxonomic head on P2/P3/P4. 30 epochs, seed 0, batch 8, MuSGD lr0 0.01, one Kaggle T4.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: g40fb
+  model: g40fc
   epochs: 30
   imgsz: 1280
   seeds:
   - 0
   arch:
-    yaml: models/g40_fb_hex.yaml
-    head_c3: 64
+    yaml: models/g40_fc_gd.yaml
+    head_c3:
+    - 64
+    - 96
+    - 96
     stride_mult: 64
     lowrank:
       layers:
@@ -29,6 +32,7 @@ train:
         - 10
         - 1
       detect_levels:
+      - -1
       - 0
       - 1
     win_attn:
@@ -37,7 +41,7 @@ train:
       heads: 2
       win: 8
     framework:
-      type: hex
+      type: gd
       at: 12
       src:
       - 2
@@ -45,14 +49,15 @@ train:
       - 6
       - 11
       cs:
+      - 32
       - 64
       - 128
-      cap: 5
-      k: 7
-    head_cls_depth: 3
+      hub: 96
+      nhub: 2
+    head_cls_depth: 2
     head_b2c: true
     hier:
-      mode: product
+      mode: sum
       weight: 0.35
   extra:
     workers: 8

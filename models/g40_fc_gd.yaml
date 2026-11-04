@@ -1,4 +1,4 @@
-# G40 F-B (HexNet, OpenCode): Stack B backbone L0-L11 + framework neck placeholders (L12 = HexNeck fed by L2/L4/L6/L11, L13-14 = P3/P4 outputs).
+# G40 F-C (HR-GD-HHD, Antigravity): Stack B backbone L0-L11 + framework neck placeholders (L12 = GDNeck fed by L2/L4/L6/L11, L13-15 = P2/P3/P4).
 # Backbone below = PRA-a20 with end2end off (one-to-many head + its loss only; inference path unchanged). PRA-a20: PRA-a with the P5 context stage (old L7-L10) run at stride 64 via an inserted 2x avg-pool (L7)
 # and a x4 upsample back to stride 16; detection on P3/P4 as PRA-a. COCO tensors: old L0-6 -> L0-6, old L7-19 -> L8-20.
 nc: 10
@@ -61,6 +61,10 @@ head:
   - 1
   - Conv
   - [64, 1, 1]
+- - 2
+  - 1
+  - Conv
+  - [128, 1, 1]
 - - 4
   - 1
   - Conv
@@ -69,7 +73,7 @@ head:
   - 1
   - Conv
   - [512, 1, 1]
-- - [13, 14]
+- - [13, 14, 15]
   - 1
   - Detect
   - [nc]
