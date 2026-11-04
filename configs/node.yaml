@@ -1,4 +1,4 @@
-# R11 latency: LiteSpan-YOLO and the round-11 stacks measured in one T4 session. No training; val only.
+# R12 latency: R11 Stacks A, B and the finished round-12 stacks measured in one T4 session. No training; val only.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
@@ -10,10 +10,10 @@ measure:
   n_warm: 30
   n_iter: 200
   models:
-  - {tag: hrn_s0, family: ultralytics, ckpt: weights/hrn_s0.pt, imgsz: 1280, latency: true, save_dets: false}
-  - {tag: r11c0_s0, family: ultralytics, ckpt: weights/r11c0_s0.pt, imgsz: 1280, latency: true, save_dets: false}
   - {tag: r11sa_s0, family: ultralytics, ckpt: weights/r11sa_s0.pt, imgsz: 1280, latency: true, save_dets: false}
   - {tag: r11sb_s0, family: ultralytics, ckpt: weights/r11sb_s0.pt, imgsz: 1280, latency: true, save_dets: false}
-  - {tag: r11sd_s0, family: ultralytics, ckpt: weights/r11sd_s0.pt, imgsz: 1280, latency: true, save_dets: false}
-  - {tag: r11se_s0, family: ultralytics, ckpt: weights/r11se_s0.pt, imgsz: 1280, latency: true, save_dets: false}
-  - {tag: r11sf_s0, family: ultralytics, ckpt: weights/r11sf_s0.pt, imgsz: 1280, latency: true, save_dets: false}
+  - {tag: r12sh_s0, family: ultralytics, ckpt: weights/r12sh_s0.pt, imgsz: 1280, latency: true, save_dets: false}
+  - {tag: r12si_s0, family: ultralytics, ckpt: weights/r12si_s0.pt, imgsz: 1280, latency: true, save_dets: false}
+  - {tag: r12sk_s0, family: ultralytics, ckpt: weights/r12sk_s0.pt, imgsz: 1280, latency: true, save_dets: false}
+  - {tag: r12sl_s0, family: ultralytics, ckpt: weights/r12sl_s0.pt, imgsz: 1280, latency: true, save_dets: false}
+  - {tag: r12sm_s0, family: ultralytics, ckpt: weights/r12sm_s0.pt, imgsz: 1280, latency: true, save_dets: false}
