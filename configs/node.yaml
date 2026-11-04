@@ -1,12 +1,12 @@
-# r9b: see the experiment description and round7-plan.md.
+# R11 S3 DIM-8-DW. Round 11 screen: 30 epochs, seed 0, batch 8 on one Kaggle T4.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r9b
-  epochs: 100
+  model: r11s3
+  epochs: 30
   imgsz: 1280
   seeds:
   - 0
@@ -28,6 +28,8 @@ train:
     detail_inject:
       src: 2
       dst: 17
+      ch: 8
+      dw: true
     inherit:
       ranges:
       - - 0
@@ -42,6 +44,7 @@ train:
   extra:
     workers: 8
     cache: false
+    batch: 8
 eval:
   imgsz:
   - 1280
