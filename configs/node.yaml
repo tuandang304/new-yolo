@@ -1,4 +1,4 @@
-# T4 re-measurement of every number in the paper. No training; val only.
+# R11 latency: LiteSpan-YOLO and the round-11 stacks measured in one T4 session. No training; val only.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
@@ -10,19 +10,9 @@ measure:
   n_warm: 30
   n_iter: 200
   models:
-  - {tag: hrn_s0, family: ultralytics, ckpt: weights/hrn_s0.pt, imgsz: 1280, latency: true, save_dets: true}
-  - {tag: hrn_s1, family: ultralytics, ckpt: weights/hrn_s1.pt, imgsz: 1280, latency: true, save_dets: false}
-  - {tag: hrn_s2, family: ultralytics, ckpt: weights/hrn_s2.pt, imgsz: 1280, latency: true, save_dets: false}
-  - {tag: yolo26n_s0, family: ultralytics, ckpt: weights/yolo26n_s0.pt, imgsz: 640, latency: true, single: true, save_dets: true}
-  - {tag: yolo26n_s1, family: ultralytics, ckpt: weights/yolo26n_s1.pt, imgsz: 640, latency: true, single: false, save_dets: false}
-  - {tag: yolo26n_s2, family: ultralytics, ckpt: weights/yolo26n_s2.pt, imgsz: 640, latency: true, single: false, save_dets: false}
-  - {tag: yolo11n_s0, family: ultralytics, ckpt: weights/yolo11n_s0.pt, imgsz: 640, latency: true, single: true, save_dets: false}
-  - {tag: yolo11n_s1, family: ultralytics, ckpt: weights/yolo11n_s1.pt, imgsz: 640, latency: true, single: false, save_dets: false}
-  - {tag: yolo11n_s2, family: ultralytics, ckpt: weights/yolo11n_s2.pt, imgsz: 640, latency: true, single: false, save_dets: false}
-  - {tag: yolov10n_s0, family: ultralytics, ckpt: weights/yolov10n_s0.pt, imgsz: 640, latency: true, single: true, save_dets: false}
-  - {tag: yolov10n_s1, family: ultralytics, ckpt: weights/yolov10n_s1.pt, imgsz: 640, latency: true, single: false, save_dets: false}
-  - {tag: yolov10n_s2, family: ultralytics, ckpt: weights/yolov10n_s2.pt, imgsz: 640, latency: true, single: false, save_dets: false}
-  - {tag: step_1024_o2o, family: ultralytics, ckpt: weights/step_1024_o2o.pt, imgsz: 1024}
-  - {tag: step_1280_o2o, family: ultralytics, ckpt: weights/step_1280_o2o.pt, imgsz: 1280}
-  - {tag: step_1280_noo2o, family: ultralytics, ckpt: weights/step_1280_noo2o.pt, imgsz: 1280}
-  - {tag: rfdetr_nano, family: rfdetr, imgsz: 640, pos_enc: 40, latency: true, save_dets: true}
+  - {tag: hrn_s0, family: ultralytics, ckpt: weights/hrn_s0.pt, imgsz: 1280, latency: true, save_dets: false}
+  - {tag: r11c0_s0, family: ultralytics, ckpt: weights/r11c0_s0.pt, imgsz: 1280, latency: true, save_dets: false}
+  - {tag: r11sa_s0, family: ultralytics, ckpt: weights/r11sa_s0.pt, imgsz: 1280, latency: true, save_dets: false}
+  - {tag: r11sb_s0, family: ultralytics, ckpt: weights/r11sb_s0.pt, imgsz: 1280, latency: true, save_dets: false}
+  - {tag: r11sd_s0, family: ultralytics, ckpt: weights/r11sd_s0.pt, imgsz: 1280, latency: true, save_dets: false}
+  - {tag: r11se_s0, family: ultralytics, ckpt: weights/r11se_s0.pt, imgsz: 1280, latency: true, save_dets: false}
