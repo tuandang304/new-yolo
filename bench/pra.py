@@ -24,6 +24,7 @@ An architecture is configured in configs/node.yaml as `train.arch`:
   head_ctx:      {src, dim} stride-64 context skip into each Detect classification branch (src is an extra Detect input)
   head_fb:       true adds P4 -> P3 feedback inside Detect: P3 += sigmoid(a(P3)) * up(f(P4))
   head_b2c:      true adds a box -> class edge per level: cls input += g(first box-branch conv output)
+  loss_cfg:      {nwd: {alpha, c, assign}} G40 loss options (see LossCfgModel); architecture unchanged
 Every inherited tensor must match in shape unless `partial`; the count of transferred tensors is printed.
 """
 from __future__ import annotations
@@ -546,8 +547,73 @@ def make_trainer(arch: dict):
                 svd_init(model, arch)
             if arch.get("pair_loss"):
                 model.__class__, model.pair_loss = PairLossModel, arch["pair_loss"]
+            if arch.get("loss_cfg"):
+                model.__class__, model.loss_cfg = LossCfgModel, arch["loss_cfg"]
             n_par = sum(p.numel() for p in model.parameters())
             print(f"[pra] arch={arch} params={n_par / 1e6:.3f}M", flush=True)
             return model
 
     return PRATrainer
+
+
+# ---- G40 loss options (picklable: every class is module level) ----
+try:
+    from ultralytics.utils.loss import BboxLoss as _BboxLoss
+    from ultralytics.utils.metrics import bbox_iou as _bbox_iou
+except Exception:  # pragma: no cover
+    _BboxLoss, _bbox_iou = nn.Module, None
+
+
+def nwd(b1: torch.Tensor, b2: torch.Tensor, c: float) -> torch.Tensor:
+    """Normalized Gaussian Wasserstein Distance (Wang et al., arXiv:2110.13389) of xyxy boxes in pixels, shape (..., 1)."""
+    c1, c2 = (b1[..., :2] + b1[..., 2:]) / 2, (b2[..., :2] + b2[..., 2:]) / 2
+    wh1, wh2 = (b1[..., 2:] - b1[..., :2]).clamp(min=0), (b2[..., 2:] - b2[..., :2]).clamp(min=0)
+    w2 = (c1 - c2).pow(2).sum(-1, keepdim=True) + ((wh1 - wh2) / 2).pow(2).sum(-1, keepdim=True)
+    return torch.exp(-(w2 + 1e-7).sqrt() / c)
+
+
+class NWDBboxLoss(_BboxLoss):
+    """Box loss 1 - (a * CIoU + (1 - a) * NWD); NWD in pixels (the loss receives boxes in grid units = pixels / stride)."""
+
+    def __init__(self, reg_max: int, alpha: float, c: float):
+        super().__init__(reg_max)
+        self.alpha, self.c = alpha, c
+
+    def forward(self, pred_dist, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum,
+                fg_mask, imgsz, stride):
+        _, loss_dfl = super().forward(pred_dist, pred_bboxes, anchor_points, target_bboxes, target_scores,
+                                      target_scores_sum, fg_mask, imgsz, stride)
+        idx = fg_mask.nonzero(as_tuple=True)
+        weight = target_scores[idx].sum(-1, keepdim=True)
+        pb, tb = pred_bboxes[idx], target_bboxes[idx]
+        s = stride[idx[1]]  # (n, 1) pixels per grid unit of each foreground anchor
+        sim = self.alpha * _bbox_iou(pb, tb, xywh=False, CIoU=True) + (1 - self.alpha) * nwd(pb * s, tb * s, self.c)
+        return ((1.0 - sim) * weight).sum() / target_scores_sum, loss_dfl
+
+
+class NWDOverlap:
+    """TAL overlap a * CIoU + (1 - a) * NWD on pixel xyxy boxes, shape (N,)."""
+
+    def __init__(self, alpha: float, c: float):
+        self.alpha, self.c = alpha, c
+
+    def __call__(self, gt, pd):
+        ci = _bbox_iou(gt, pd, xywh=False, CIoU=True).clamp_(0)
+        return (self.alpha * ci + (1 - self.alpha) * nwd(gt, pd, self.c)).squeeze(-1)
+
+
+class LossCfgModel(_DetectionModel):
+    """DetectionModel whose criterion follows `loss_cfg` (architecture unchanged).
+    nwd: {alpha, c, assign}  box loss (and with assign, the TAL overlap) = a * CIoU + (1 - a) * NWD."""
+
+    def init_criterion(self):
+        c = super().init_criterion()
+        cfg = self.loss_cfg.get("nwd")
+        if cfg:
+            a, cc = float(cfg.get("alpha", 0.5)), float(cfg.get("c", 12.8))
+            for part in (c.one2many, c.one2one) if hasattr(c, "one2many") else (c,):
+                part.bbox_loss = NWDBboxLoss(part.reg_max, a, cc).to(part.device)
+                if cfg.get("assign", True):
+                    part.assigner.iou_calculation = NWDOverlap(a, cc)
+            print(f"[pra] loss: NWD alpha={a} c={cc} assign={cfg.get('assign', True)}", flush=True)
+        return c

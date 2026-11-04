@@ -1,11 +1,11 @@
-# R11 Stack B: Stack A + S4 + S6. Round 11 screen: 30 epochs, seed 0, batch 8 on one Kaggle T4.
+# G40 L1: Stack B + NWD in box loss and TAL overlap. 30 epochs, seed 0, batch 8, one Kaggle T4.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r11sb
+  model: g40l1
   epochs: 30
   imgsz: 1280
   seeds:
@@ -41,6 +41,11 @@ train:
       heads: 2
       win: 8
     head_b2c: true
+    loss_cfg:
+      nwd:
+        alpha: 0.5
+        c: 12.8
+        assign: true
   extra:
     workers: 8
     cache: false
