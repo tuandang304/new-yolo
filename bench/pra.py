@@ -24,7 +24,9 @@ An architecture is configured in configs/node.yaml as `train.arch`:
   head_ctx:      {src, dim} stride-64 context skip into each Detect classification branch (src is an extra Detect input)
   head_fb:       true adds P4 -> P3 feedback inside Detect: P3 += sigmoid(a(P3)) * up(f(P4))
   head_b2c:      true adds a box -> class edge per level: cls input += g(first box-branch conv output)
-  framework:     {type: hr, at, src: [s4, s8, s16, ctx], cs: [c4, c8, c16], units, k, e} G40 new neck replacing the PAN
+  hier:          {mode: product|sum, weight, groups} superclass x fine class head + auxiliary superclass BCE
+  head_cls_depth: number of DW+1x1 pairs in the lite class tower (default 2)
+  framework:     {type: hr|hex, at, src: [s4, s8, s16, ctx], cs: [c4, c8, c16], units, k, e} G40 new neck replacing the PAN
                  (placeholders in the YAML; see framework_surgery)
 Every inherited tensor must match in shape unless `partial`; the count of transferred tensors is printed.
 """
@@ -375,10 +377,11 @@ def surgery(model, arch: dict) -> None:
     if arch.get("head_c3"):
         ch = [s[0][0].conv.in_channels for s in det.cv3]
         c3s = arch["head_c3"] if isinstance(arch["head_c3"], list) else [arch["head_c3"]] * len(ch)  # int or per level
+        depth, n_out = arch.get("head_cls_depth", 2), det.nc + (4 if arch.get("hier") else 0)
         lite = nn.ModuleList(
             nn.Sequential(nn.Sequential(DWConv(x, x, k), Conv(x, c3, 1)),
-                          nn.Sequential(DWConv(c3, c3, k), Conv(c3, c3, 1)),
-                          nn.Conv2d(c3, det.nc, 1)) for x, c3, k in zip(ch, c3s, arch.get("head_k", [3] * len(ch))))
+                          *[nn.Sequential(DWConv(c3, c3, k), Conv(c3, c3, 1)) for _ in range(depth - 1)],
+                          nn.Conv2d(c3, n_out, 1)) for x, c3, k in zip(ch, c3s, arch.get("head_k", [3] * len(ch))))
         det.cv3 = lite
         if getattr(det, "one2one_cv3", None) is not None:
             import copy
@@ -422,8 +425,19 @@ def surgery(model, arch: dict) -> None:
             det.b2c = nn.ModuleList(Conv(b, c, 1, 1, act=False) for b, c in zip(cb, chx))
             for o in det.b2c:
                 _zero_bn(o)
+    if arch.get("hier"):
+        hc = arch["hier"]
+        if type(det) is _Detect:
+            det.__class__ = R11Detect
+        det.__class__ = HierDetect
+        det.ns, det.hier_mode = 4, hc.get("mode", "product")
+        det.register_buffer("sup_index", torch.tensor(hc.get("groups", VISDRONE_SUPER)), persistent=False)
+        det.gamma = nn.Parameter(torch.zeros(det.nc))  # used by mode 'sum' only
     if hasattr(det, "bias_init"):
         det.bias_init()
+    if arch.get("hier"):
+        for s_ in det.cv3:  # superclass logits start confident (sigmoid ~0.98) so the product equals the fine score
+            nn.init.constant_(s_[-1].bias[det.nc:], 4.0)
     if arch.get("stride_mult"):
         # model.stride drives letterbox / rect-batch padding; Detect keeps its own per-level strides.
         model.stride = torch.tensor([float(arch["stride_mult"])])
@@ -550,6 +564,8 @@ def make_trainer(arch: dict):
                 svd_init(model, arch)
             if arch.get("pair_loss"):
                 model.__class__, model.pair_loss = PairLossModel, arch["pair_loss"]
+            if arch.get("hier"):
+                model.__class__, model.hier_weight = HierLossModel, float(arch["hier"].get("weight", 0.35))
             n_par = sum(p.numel() for p in model.parameters())
             print(f"[pra] arch={arch} params={n_par / 1e6:.3f}M", flush=True)
             return model
@@ -655,6 +671,9 @@ def framework_surgery(model, arch: dict) -> None:
         cin = [seq[s].cv2.conv.out_channels if hasattr(seq[s], "cv2") else seq[s].conv.out_channels for s in src[:-1]]
         cctx = seq[src[-1]].cv2.conv.out_channels if fw.get("ctx", True) else 0
         neck = HRNeck(cin, fw["cs"], fw.get("units", 3), fw.get("k", 7), fw.get("e", 2), cctx)
+    elif fw["type"] == "hex":
+        oc = lambda s_: seq[s_].cv2.conv.out_channels
+        neck = HexNeck(oc(src[0]), oc(src[1]), oc(src[2]), oc(src[3]), fw["cs"][0], fw["cs"][1], fw.get("cap", 5), fw.get("k", 7))
     else:
         raise ValueError(fw["type"])
     neck.i, neck.f, neck.type = at, list(src), f"bench.pra.{type(neck).__name__}"
@@ -666,3 +685,160 @@ def framework_surgery(model, arch: dict) -> None:
         idx.i, idx.f, idx.type, idx.np = old.i, at, "ultralytics.nn.modules.conv.Index", 0
         seq[at + 1 + k] = idx
     model.save = sorted(set(model.save) | set(src) | {at})
+
+
+class RKLOpen(nn.Module):
+    """Stream opening block (no residual): 1x1 (cin->c) + re-param DW 7x7 (+DW 3x3 branch) + 1x1 (c->c)."""
+
+    def __init__(self, c1: int, c: int, k: int = 7):
+        super().__init__()
+        self.pw0 = _Conv(c1, c, 1, 1)
+        self.dwk = _Conv(c, c, k, 1, g=c, act=False)
+        self.dw3 = _Conv(c, c, 3, 1, g=c, act=False)
+        self.pw1 = _Conv(c, c, 1, 1)
+
+    def forward(self, x):
+        y = self.pw0(x)
+        return self.pw1(F.silu(self.dwk(y) + self.dw3(y)))
+
+
+class RKLRes(nn.Module):
+    """Residual large-kernel block: x + 1x1(2c->c)(DW7(1x1(c->2c)(x))); zero=True starts as identity (last BN gain 0)."""
+
+    def __init__(self, c: int, e: int = 2, k: int = 7, zero: bool = False):
+        super().__init__()
+        self.pw1 = _Conv(c, c * e, 1, 1)
+        self.dwk = _Conv(c * e, c * e, k, 1, g=c * e, act=False)
+        self.dw3 = _Conv(c * e, c * e, 3, 1, g=c * e, act=False)
+        self.pw2 = _Conv(c * e, c, 1, 1, act=False)
+        if zero:
+            _zero_bn(self.pw2)
+
+    def forward(self, x):
+        y = self.pw1(x)
+        return x + self.pw2(F.silu(self.dwk(y) + self.dw3(y)))
+
+
+class HexNeck(nn.Module):
+    """Framework B (HexNet, proposed by the OpenCode harness): two live streams (stride 8, stride 16) with a stride-4
+    detail feed and a stride-64 context gate, two HRNet exchange rounds, and parallel zero-init capacity on stride 8.
+    Inputs [L2 (s4), L4 (s8), L6 (s16), L11 (ctx)]; returns [P3 (c8), P4 (c16)]."""
+
+    def __init__(self, c4: int, c8in: int, c16in: int, cctx: int, c8: int = 64, c16: int = 128, cap: int = 5, k: int = 7):
+        super().__init__()
+        self.detail = nn.Sequential(_Conv(c4, 16, 1, 1), nn.PixelUnshuffle(2), _Conv(64, 64, 3, 1, g=64), _Conv(64, 32, 1, 1))
+        self.ctx = _Conv(cctx, 32, 1, 1, act=False)
+        self.open16, self.open8 = RKLOpen(c16in + 32, c16, k), RKLOpen(c8in + 32, c8, k)
+        self.deep16a, self.deep16b = RKLRes(c16, 2, k), RKLRes(c16, 2, k, zero=True)
+        self.deep8a, self.deep8b = RKLRes(c8, 2, k), RKLRes(c8, 2, k)
+        self.up = nn.ModuleList(_Conv(c16, c8, 1, 1, act=False) for _ in range(2))
+        for m in self.up:
+            _zero_bn(m)
+        self.down = nn.ModuleList(nn.Sequential(_Conv(c8, c8, 3, 2, g=c8, act=False), _Conv(c8, c16, 1, 1)) for _ in range(2))
+        self.cap = nn.ModuleList(RKLRes(c8, 2, k) for _ in range(cap))
+        self.cap_proj = _Conv(c8, c8, 1, 1, act=False)
+        _zero_bn(self.cap_proj)
+
+    def _exchange(self, i, s8, s16):
+        u = F.interpolate(self.up[i](s16), size=s8.shape[2:], mode="nearest")
+        return s8 + u, s16 + self.down[i](s8)
+
+    def forward(self, x):
+        l2, l4, l6, l11 = x
+        g = F.interpolate(self.ctx(l11), size=l6.shape[2:], mode="nearest")
+        s16 = self.deep16a(self.open16(torch.cat([l6, g], 1)))
+        s8 = self.deep8a(self.open8(torch.cat([l4, self.detail(l2)], 1)))
+        s8, s16 = self._exchange(0, s8, s16)
+        s8, s16 = self.deep8b(s8), self.deep16b(s16)
+        s8, s16 = self._exchange(1, s8, s16)
+        s8 = s8 + self.cap_proj(sum(c(s8) - s8 for c in self.cap))  # parallel capacity: branch residuals summed, gated 0
+        return [s8, s16]
+
+
+# ---- hierarchical (superclass x fine) classification ----
+VISDRONE_SUPER = [0, 0, 1, 3, 3, 2, 3, 3, 1, 2]  # pedestrian, people | bicycle, motor | tricycle, awning | van car truck bus
+
+
+class HierDetect(R11Detect):
+    """R11Detect whose class tower ends in nc fine + ns superclass logits. The returned class logit combines both:
+    mode 'product': logit(sigmoid(fine) * sigmoid(super[g(c)]));  mode 'sum': fine + gamma * super[g(c)].
+    Superclass logits are also returned as 'sup' for the auxiliary loss."""
+
+    def forward_head(self, x, box_head=None, cls_head=None):
+        if box_head is None or cls_head is None:
+            return {}
+        bs = x[0].shape[0]
+        b2c, ctxf = getattr(self, "b2c", None), getattr(self, "_ctxf", None)
+        boxes, scores, sups = [], [], []
+        g = self.sup_index
+        for i in range(self.nl):
+            xi, ci = x[i], x[i]
+            if b2c is not None:
+                h = box_head[i][0](xi)
+                b = box_head[i][2](box_head[i][1](h))
+                ci = ci + b2c[i](h)
+            else:
+                b = box_head[i](xi)
+            if ctxf is not None:
+                ci = ci + self.ctxo[i](F.interpolate(ctxf, size=xi.shape[2:], mode="nearest"))
+            raw = cls_head[i](ci).view(bs, self.nc + self.ns, -1)
+            fine, sup = raw[:, :self.nc], raw[:, self.nc:]
+            sg = sup[:, g]
+            if self.hier_mode == "product":
+                lp = F.logsigmoid(fine) + F.logsigmoid(sg)  # log p, p = sigmoid(fine) * sigmoid(super)
+                z = lp - torch.log1p(-lp.exp().clamp(max=1 - 1e-6))
+            else:
+                z = fine + self.gamma.view(1, -1, 1) * sg
+            boxes.append(b.view(bs, 4 * self.reg_max, -1))
+            scores.append(z)
+            sups.append(sup)
+        return {"boxes": torch.cat(boxes, -1), "scores": torch.cat(scores, -1), "sup": torch.cat(sups, -1), "feats": x}
+
+
+class CaptureBCE(nn.Module):
+    """BCEWithLogits(reduction='none') that keeps the last target tensor (the assigner's soft class targets)."""
+
+    def __init__(self):
+        super().__init__()
+        self.bce = nn.BCEWithLogitsLoss(reduction="none")
+        self.last_target = None
+
+    def forward(self, pred, target):
+        self.last_target = target.detach()
+        return self.bce(pred, target)
+
+
+try:
+    from ultralytics.utils.loss import v8DetectionLoss as _V8Loss
+except Exception:  # pragma: no cover
+    _V8Loss = object
+
+
+class HierDetLoss(_V8Loss):
+    """v8DetectionLoss + auxiliary BCE on superclass logits over assigned foreground anchors (mean per anchor);
+    the target is 1 for the group of the anchor's assigned class, 0 for the other groups."""
+
+    def get_assigned_targets_and_loss(self, preds, batch, **kw):
+        info, loss, items = super().get_assigned_targets_and_loss(preds, batch, **kw)
+        t = self.bce.last_target  # (b, a, nc)
+        if "sup" in preds and t is not None:
+            sup = preds["sup"].permute(0, 2, 1).contiguous()  # (b, a, ns)
+            ts = torch.stack([t[..., self.sup_members[s]].amax(-1) for s in range(sup.shape[-1])], -1)
+            fg = ts.amax(-1) > 0  # superclass = P(group | object): trained on assigned foreground anchors only
+            ts = ts / ts.amax(-1, keepdim=True).clamp(min=1e-9)  # hard group label on each foreground anchor
+            ls = F.binary_cross_entropy_with_logits(sup[fg], ts[fg].to(sup.dtype), reduction="sum") / fg.sum().clamp(min=1)
+            loss[1] = loss[1] + self.sup_weight * self.hyp.cls * ls
+        return info, loss, items
+
+
+class HierLossModel(_DetectionModel):
+    """DetectionModel whose criterion adds the superclass auxiliary loss (weight `hier_weight`)."""
+
+    def init_criterion(self):
+        c = super().init_criterion()
+        c.bce = CaptureBCE()
+        c.__class__ = HierDetLoss
+        sup = self.model[-1].sup_index.tolist()
+        c.sup_members = [[k for k, s in enumerate(sup) if s == j] for j in range(max(sup) + 1)]
+        c.sup_weight = self.hier_weight
+        return c
