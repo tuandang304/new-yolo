@@ -332,13 +332,11 @@ class CarafeUp(nn.Module):
         s = self.s
         w = F.pixel_shuffle(self.gen(self.comp(x)), s).softmax(1)  # B, 9, sH, sW
         up = F.interpolate(x, scale_factor=s, mode="nearest")
-        # reassembly on the coarse grid = 3x3 mix of nearest-upsampled neighbours at stride s
-        xp = F.pad(x, (1, 1, 1, 1), mode="replicate")
-        H, W = x.shape[2:]
-        out = 0
-        for k in range(9):
-            dy, dx = divmod(k, 3)
-            out = out + F.interpolate(xp[:, :, dy:dy + H, dx:dx + W], scale_factor=s, mode="nearest") * w[:, k:k + 1]
+        # reassembly: each output sub-pixel mixes the 3x3 coarse neighbourhood of its source cell (unfold + einsum)
+        B, C, H, W = x.shape
+        xu = F.unfold(F.pad(x, (1, 1, 1, 1), mode="replicate"), 3).view(B, C, 9, H * W)
+        wu = F.pixel_unshuffle(w, s).view(B, 9, s * s, H * W)
+        out = F.pixel_shuffle(torch.einsum("bckn,bkpn->bcpn", xu, wu).reshape(B, C * s * s, H, W), s)
         return up + self.g * (out - up)
 
     def forward(self, x):
