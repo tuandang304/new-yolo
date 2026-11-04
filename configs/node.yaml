@@ -1,17 +1,17 @@
-# R11 Stack B: Stack A + S4 + S6. Round 11 screen: 30 epochs, seed 0, batch 8 on one Kaggle T4.
+# G40 F-A: Stack B + stride-4 (P2) detection level. Goal-40 round 1 screen: 30 epochs, seed 0, batch 8, one Kaggle T4.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r11sb
+  model: g40fa
   epochs: 30
   imgsz: 1280
   seeds:
   - 0
   arch:
-    yaml: models/pra_a20_o2m.yaml
+    yaml: models/g40_p2.yaml
     head_c3: 64
     stride_mult: 64
     lowrank:
@@ -30,6 +30,7 @@ train:
         - 1
       detect_levels:
       - 0
+      - 0
       - 1
     head_fb: true
     head_ctx:
@@ -41,6 +42,9 @@ train:
       heads: 2
       win: 8
     head_b2c: true
+    head_fb_levels:
+    - 1
+    - 2
   extra:
     workers: 8
     cache: false

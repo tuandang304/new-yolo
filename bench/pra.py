@@ -24,6 +24,7 @@ An architecture is configured in configs/node.yaml as `train.arch`:
   head_ctx:      {src, dim} stride-64 context skip into each Detect classification branch (src is an extra Detect input)
   head_fb:       true adds P4 -> P3 feedback inside Detect: P3 += sigmoid(a(P3)) * up(f(P4))
   head_b2c:      true adds a box -> class edge per level: cls input += g(first box-branch conv output)
+  head_fb_levels: [dst, src] Detect levels for head_fb (default [0, 1]; [1, 2] keeps P4 -> P3 when P2 is level 0)
 Every inherited tensor must match in shape unless `partial`; the count of transferred tensors is printed.
 """
 from __future__ import annotations
@@ -92,8 +93,9 @@ class R11Detect(_Detect):
         x = list(x)
         self._ctxf = self.ctx(x.pop()) if getattr(self, "ctx", None) is not None else None
         if getattr(self, "fb", None) is not None:
-            f = F.interpolate(self.fb(x[1]), size=x[0].shape[2:], mode="nearest")
-            x[0] = x[0] + torch.sigmoid(self.fba(x[0])) * f
+            d, s = getattr(self, "fb_levels", (0, 1))
+            f = F.interpolate(self.fb(x[s]), size=x[d].shape[2:], mode="nearest")
+            x[d] = x[d] + torch.sigmoid(self.fba(x[d])) * f
         try:
             return super().forward(x)
         finally:
@@ -410,9 +412,11 @@ def surgery(model, arch: dict) -> None:
             det.f = [*det.f, hc["src"]]
             model.save = sorted(set(model.save) | {hc["src"]})
         if arch.get("head_fb"):
-            det.fb = Conv(chx[1], chx[0], 1, 1, act=False)
+            d, s_ = arch.get("head_fb_levels", [0, 1])  # [finer dst level, coarser src level]
+            det.fb_levels = (d, s_)
+            det.fb = Conv(chx[s_], chx[d], 1, 1, act=False)
             _zero_bn(det.fb)
-            det.fba = nn.Conv2d(chx[0], 1, 1)
+            det.fba = nn.Conv2d(chx[d], 1, 1)
         if arch.get("head_b2c"):
             cb = [s[0].conv.out_channels for s in det.cv2]
             det.b2c = nn.ModuleList(Conv(b, c, 1, 1, act=False) for b, c in zip(cb, chx))
