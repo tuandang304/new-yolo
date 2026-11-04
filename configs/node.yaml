@@ -1,11 +1,11 @@
-# R11 Stack B: Stack A + S4 + S6. Round 11 screen: 30 epochs, seed 0, batch 8 on one Kaggle T4.
+# G40 O1: Stack B unchanged, optimizer forced to MuSGD lr0 0.01 (what optimizer=auto picks at 100 ep). 30 epochs, seed 0, batch 8, one Kaggle T4.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r11sb
+  model: g40o1
   epochs: 30
   imgsz: 1280
   seeds:
@@ -45,6 +45,9 @@ train:
     workers: 8
     cache: false
     batch: 8
+    optimizer: MuSGD
+    lr0: 0.01
+    warmup_bias_lr: 0.0
 eval:
   imgsz:
   - 1280
