@@ -385,6 +385,9 @@ def make_trainer(arch: dict):
             if arch.get("init", "yolo26n.pt"):
                 inherit(model, arch, arch.get("init", "yolo26n.pt"))
                 svd_init(model, arch)
+            if arch.get("access"):  # Access branch: block redesigns built from the inherited tensors
+                from . import access
+                access.apply(model, arch["access"])
             if arch.get("pair_loss"):
                 model.__class__, model.pair_loss = PairLossModel, arch["pair_loss"]
             n_par = sum(p.numel() for p in model.parameters())

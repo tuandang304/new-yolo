@@ -1,12 +1,12 @@
-# r9b: see the experiment description and round7-plan.md.
+# Access-0: R9b minus DIM and zero-init blocks; 30-epoch screen control with MuSGD forced (see experiment description).
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r9b
-  epochs: 100
+  model: access0
+  epochs: 30
   imgsz: 1280
   seeds:
   - 0
@@ -14,20 +14,11 @@ train:
     yaml: models/pra_a20_o2m.yaml
     head_c3: 64
     stride_mult: 64
-    append_bottlenecks:
-    - layer: 9
-      n: 4
-    append_psa:
-    - layer: 11
-      n: 2
     lowrank:
       layers:
       - 3
       - 5
       ratio: 0.5
-    detail_inject:
-      src: 2
-      dst: 17
     inherit:
       ranges:
       - - 0
@@ -42,6 +33,10 @@ train:
   extra:
     workers: 8
     cache: false
+    optimizer: MuSGD
+    lr0: 0.01
+    momentum: 0.9
+    warmup_bias_lr: 0.0
 eval:
   imgsz:
   - 1280
