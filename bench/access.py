@@ -202,6 +202,26 @@ def apply(model, specs: list) -> None:
                             cv = getattr(b, name)
                             if isinstance(cv, Conv) and cv.conv.kernel_size == (3, 3):
                                 setattr(b, name, to_repconv(cv))
+            elif op == "lowrank_conv":  # 3x3 Conv layer -> LowRankConv of rank r, SVD of the inherited kernel
+                from .pra import LowRankConv
+                new = LowRankConv(m.conv.in_channels, m.conv.out_channels, sp["rank"]).to(m.conv.weight.device)
+                if m.conv.stride != (1, 1):
+                    new.a.stride = m.conv.stride
+                e = new.init_from(m)
+                new.i, new.f, new.type = m.i, m.f, "bench.pra.LowRankConv"
+                seq[li] = new
+                print(f"[access] layer {li}: SVD rank {sp['rank']} retains {e:.3f} energy", flush=True)
+            elif op == "lowrank_pw":  # a 1x1 Conv attribute (e.g. SPPF.cv2) -> rank-r pair, SVD of the inherited weight
+                cv = getattr(m, sp["attr"])
+                W = cv.conv.weight.detach().float()[:, :, 0, 0]
+                U, S_, Vh = torch.linalg.svd(W, full_matrices=False)
+                r = sp["rank"]; s = S_[:r].sqrt()
+                a1 = nn.Conv2d(W.shape[1], r, 1, bias=False); b1 = Conv(r, W.shape[0], 1, act=cv.act)
+                with torch.no_grad():
+                    a1.weight.copy_((s[:, None] * Vh[:r])[:, :, None, None]); b1.conv.weight.copy_((U[:, :r] * s[None])[:, :, None, None])
+                b1.bn.load_state_dict(cv.bn.state_dict())
+                setattr(m, sp["attr"], nn.Sequential(a1, b1).to(W.device))
+                print(f"[access] layer {li}.{sp['attr']}: SVD rank {r} retains {float((S_[:r]**2).sum()/(S_**2).sum()):.3f} energy", flush=True)
             elif op == "dwsep_c3k":
                 for b in _inner_c3k(m).m:
                     for name in ("cv1", "cv2"):
