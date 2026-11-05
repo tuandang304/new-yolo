@@ -148,6 +148,18 @@ def probe_rfdetr_xla(sub: str) -> None:
     print(f"PROBE_OK rfdetr xla 1 epoch on 64 imgs: {time.time() - t0:.1f}s", flush=True)
 
 
+def emit_ckpt(path: str, width: int = 4000) -> None:
+    """Print a checkpoint as base64 lines (CKPT_B64 <i> <chunk>) between CKPT_BEGIN/CKPT_END, with its sha256."""
+    import base64
+    import hashlib
+    b = Path(path).read_bytes()
+    print(f"CKPT_BEGIN {Path(path).name} bytes={len(b)} sha256={hashlib.sha256(b).hexdigest()}", flush=True)
+    s = base64.b64encode(b).decode()
+    for i in range(0, len(s), width):
+        print(f"CKPT_B64 {i // width} {s[i:i + width]}", flush=True)
+    print("CKPT_END", flush=True)
+
+
 def task_train(cfg: dict, root: Path, seed: int, gpu: int) -> dict:
     from .train import FAMILY, train
     t = cfg["train"]
@@ -159,6 +171,8 @@ def task_train(cfg: dict, root: Path, seed: int, gpu: int) -> dict:
     train_root = D.masked_train(root) if t.get("mask_ignore") else root  # evaluation always uses the unmasked `root`
     ckpt, info = train(model, train_root, out, epochs, t.get("imgsz", 640), seed, dev, t.get("extra"), t.get("arch"))
     log_result("train", {"model": model, "seed": seed, **info})
+    if t.get("emit_ckpt"):  # Modal/GCP return no output files: put the checkpoint in the log
+        emit_ckpt(ckpt)
     ev = cfg.get("eval", {})
     res = evaluate_ckpt(f"{model}_s{seed}", fam, ckpt, eval_root(cfg, root), ev.get("imgsz", [640, 1280]),
                         ev.get("splits", ["valid", "test"]), dev if fam == "ultralytics" else f"cuda:{gpu}",
