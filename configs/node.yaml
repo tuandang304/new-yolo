@@ -1,12 +1,48 @@
 # R12 J 100 ep seed 1. 100-epoch confirm, seed 1, R9b recipe (batch 16).
+# R12 Stack H. Round 12 screen: 30 epochs, seed 0, batch 8 on one Kaggle T4.
+# R11 Stack A: S1+S2+R+no DIM. Round 11 screen: 30 epochs, seed 0, batch 8 on one Kaggle T4.
+# T4 re-measurement of every number in the paper. No training; val only.
+# Fine-tune yolo11n from its official COCO checkpoint; evaluate with the unified evaluator.
+smoke: false
+data_root: /tmp/visdrone/data
+tasks: [data, train]
+train: {model: yolo11n, epochs: 100, imgsz: 640, seeds: [1]}
+eval: {imgsz: [640, 1280], splits: [valid, test]}
+# R6c confirmation: lift x1.5 + P2-PAN at 640 px input, 100 epochs (official 100-ep recipe), seed 0, val only.
+# Round 4 R4c: 30-epoch screening, val only. See the experiment description. RAM cache off: at 1088 px it was killed on Kaggle (30 GB host RAM); does not change results.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
+- measure
+measure:
+  latency_images: 200
+  latency_passes: 2
+  n_warm: 30
+  n_iter: 200
+  models:
+  - {tag: hrn_s0, family: ultralytics, ckpt: weights/hrn_s0.pt, imgsz: 1280, latency: true, save_dets: true}
+  - {tag: hrn_s1, family: ultralytics, ckpt: weights/hrn_s1.pt, imgsz: 1280, latency: true, save_dets: false}
+  - {tag: hrn_s2, family: ultralytics, ckpt: weights/hrn_s2.pt, imgsz: 1280, latency: true, save_dets: false}
+  - {tag: yolo26n_s0, family: ultralytics, ckpt: weights/yolo26n_s0.pt, imgsz: 640, latency: true, single: true, save_dets: true}
+  - {tag: yolo26n_s1, family: ultralytics, ckpt: weights/yolo26n_s1.pt, imgsz: 640, latency: true, single: false, save_dets: false}
+  - {tag: yolo26n_s2, family: ultralytics, ckpt: weights/yolo26n_s2.pt, imgsz: 640, latency: true, single: false, save_dets: false}
+  - {tag: yolo11n_s0, family: ultralytics, ckpt: weights/yolo11n_s0.pt, imgsz: 640, latency: true, single: true, save_dets: false}
+  - {tag: yolo11n_s1, family: ultralytics, ckpt: weights/yolo11n_s1.pt, imgsz: 640, latency: true, single: false, save_dets: false}
+  - {tag: yolo11n_s2, family: ultralytics, ckpt: weights/yolo11n_s2.pt, imgsz: 640, latency: true, single: false, save_dets: false}
+  - {tag: yolov10n_s0, family: ultralytics, ckpt: weights/yolov10n_s0.pt, imgsz: 640, latency: true, single: true, save_dets: false}
+  - {tag: yolov10n_s1, family: ultralytics, ckpt: weights/yolov10n_s1.pt, imgsz: 640, latency: true, single: false, save_dets: false}
+  - {tag: yolov10n_s2, family: ultralytics, ckpt: weights/yolov10n_s2.pt, imgsz: 640, latency: true, single: false, save_dets: false}
+  - {tag: step_1024_o2o, family: ultralytics, ckpt: weights/step_1024_o2o.pt, imgsz: 1024}
+  - {tag: step_1280_o2o, family: ultralytics, ckpt: weights/step_1280_o2o.pt, imgsz: 1280}
+  - {tag: step_1280_noo2o, family: ultralytics, ckpt: weights/step_1280_noo2o.pt, imgsz: 1280}
+  - {tag: rfdetr_nano, family: rfdetr, imgsz: 640, pos_enc: 40, latency: true, save_dets: true}
 - train
 train:
   model: r12j100
   epochs: 100
+  model: r12sh
+  epochs: 30
   imgsz: 1280
   seeds:
   - 1
@@ -14,11 +50,38 @@ train:
     yaml: models/pra_a20_o2m.yaml
     head_c3: 64
     stride_mult: 64
+  model: r6c_100
+  epochs: 100
+  imgsz: 640
+  seeds:
+  - 0
+  arch:
+    yaml: models/pra_a20_p2.yaml
+  model: r4_r4c
+  epochs: 30
+  imgsz: 1088
+  seeds:
+  - 0
+  arch:
+    yaml: models/pra_a20_s32.yaml
+    head_c3: 32
+    stride_mult: 128
+    append_bottlenecks:
+    - layer: 9
+      n: 4
+    append_psa:
+    - layer: 11
+      n: 2
     lowrank:
       layers:
       - 3
       - 5
       - 8
+      ratio: 0.5
+    detail_inject:
+      src: 2
+      dst: 17
+      - 19
       ratio: 0.5
     inherit:
       ranges:
@@ -28,6 +91,27 @@ train:
       - - 7
         - 19
         - 1
+      detect_levels:
+      - 0
+      - 0
+      - 1
+    detect_bu: true
+    lift:
+      layer: 1
+      scale: 1.5
+  extra:
+    workers: 8
+eval:
+  imgsz:
+  - 640
+        - 10
+        - 1
+      - - 11
+        - 17
+        - 2
+      - - 18
+        - 19
+        - 3
       detect_levels:
       - 0
       - 1
@@ -40,11 +124,16 @@ train:
     r12_head:
       l11gate: true
       pconv_mf: true
+    r12_head:
+      edge_img: true
+      density: true
+      scr: true
+    density_loss: 0.5
   extra:
     workers: 8
     cache: false
 eval:
   imgsz:
-  - 1280
+  - 1088
   splits:
   - valid
