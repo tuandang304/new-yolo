@@ -1074,4 +1074,11 @@ def make_trainer(arch: dict):
             print(f"[pra] arch={arch} params={n_par / 1e6:.3f}M", flush=True)
             return model
 
+    # Multi-GPU: Ultralytics' DDP launcher re-imports the trainer class by module path in a fresh
+    # process, so expose it as bench.pra_ddp.PRATrainer, rebuilt there from the same arch dict.
+    import json, os
+    os.environ["PRA_ARCH_JSON"] = json.dumps(arch)
+    root = str(Path(__file__).resolve().parents[1])
+    os.environ["PYTHONPATH"] = root + (os.pathsep + os.environ["PYTHONPATH"] if os.environ.get("PYTHONPATH") else "")
+    PRATrainer.__module__ = "bench.pra_ddp"
     return PRATrainer
