@@ -1,35 +1,38 @@
-# Access-0: R9b minus DIM and zero-init blocks; 30-epoch screen control with MuSGD forced (see experiment description).
+# Access-3: see the experiment description. Base Access-0; 30-epoch screen, MuSGD forced.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: access0
+  model: access3
   epochs: 30
   imgsz: 1280
   seeds:
   - 0
   arch:
-    yaml: models/pra_a20_o2m.yaml
+    yaml: models/pra_a_o2m.yaml
     head_c3: 64
-    stride_mult: 64
+    stride_mult: 32
     lowrank:
       layers:
       - 3
       - 5
+      - 7
       ratio: 0.5
     inherit:
       ranges:
       - - 0
-        - 6
-        - 0
-      - - 7
         - 19
-        - 1
+        - 0
       detect_levels:
       - 0
       - 1
+    access:
+    - op: dwsep_c3k
+      layers: [6, 8, 13, 16, 19]
+    - op: sra_psa
+      layers: [10]
   extra:
     workers: 8
     cache: false
