@@ -1,3 +1,6 @@
+# Sci Rep measure: frozen 100-ep checkpoints only, no training, no selection.
+# test-dev AP of CtxGate-YOLO (Stack J, 3 seeds) and the three nano baselines (3 seeds each), then FP16 batch-1
+# latency of one checkpoint per model on the same T4 in one session (two passes in opposite order).
 # R12 J 100 ep seed 1. 100-epoch confirm, seed 1, R9b recipe (batch 16).
 # R12 Stack H. Round 12 screen: 30 epochs, seed 0, batch 8 on one Kaggle T4.
 # R11 Stack A: S1+S2+R+no DIM. Round 11 screen: 30 epochs, seed 0, batch 8 on one Kaggle T4.
@@ -16,6 +19,21 @@ tasks:
 - data
 - measure
 measure:
+  split: test
+  latency: true
+  models:
+  - {tag: ctxgate_s0, family: ultralytics, ckpt: weights/ctxgate_s0.pt, imgsz: 1280, save_dets: true, latency: true}
+  - {tag: ctxgate_s1, family: ultralytics, ckpt: weights/ctxgate_s1.pt, imgsz: 1280, save_dets: true}
+  - {tag: ctxgate_s2, family: ultralytics, ckpt: weights/ctxgate_s2.pt, imgsz: 1280, save_dets: true}
+  - {tag: yolo26n_s0, family: ultralytics, ckpt: weights/yolo26n_s0.pt, imgsz: 640, save_dets: true, latency: true}
+  - {tag: yolo26n_s1, family: ultralytics, ckpt: weights/yolo26n_s1.pt, imgsz: 640}
+  - {tag: yolo26n_s2, family: ultralytics, ckpt: weights/yolo26n_s2.pt, imgsz: 640}
+  - {tag: yolo11n_s0, family: ultralytics, ckpt: weights/yolo11n_s0.pt, imgsz: 640, latency: true}
+  - {tag: yolo11n_s1, family: ultralytics, ckpt: weights/yolo11n_s1.pt, imgsz: 640}
+  - {tag: yolo11n_s2, family: ultralytics, ckpt: weights/yolo11n_s2.pt, imgsz: 640}
+  - {tag: yolov10n_s0, family: ultralytics, ckpt: weights/yolov10n_s0.pt, imgsz: 640, latency: true}
+  - {tag: yolov10n_s1, family: ultralytics, ckpt: weights/yolov10n_s1.pt, imgsz: 640}
+  - {tag: yolov10n_s2, family: ultralytics, ckpt: weights/yolov10n_s2.pt, imgsz: 640}
   latency_images: 200
   latency_passes: 2
   n_warm: 30
