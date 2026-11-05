@@ -1,11 +1,12 @@
-# r9b: see the experiment description and round7-plan.md.
+# Ablation B1 of R9b for the IEEE Access revision; see the experiment description.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r9b
+  model: abl_b1
+  emit_ckpt: true
   epochs: 100
   imgsz: 1280
   seeds:
@@ -25,9 +26,6 @@ train:
       - 3
       - 5
       ratio: 0.5
-    detail_inject:
-      src: 2
-      dst: 17
     inherit:
       ranges:
       - - 0
