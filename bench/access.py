@@ -167,6 +167,7 @@ def _inner_c3k(m: nn.Module) -> C3k:
 
 def apply(model, specs: list) -> None:
     seq = model.model
+    old_bn = {id(b) for b in model.modules() if isinstance(b, nn.BatchNorm2d)}
     for sp in specs:
         op = sp["op"]
         for li in sp["layers"]:
@@ -233,6 +234,6 @@ def apply(model, specs: list) -> None:
             if hasattr(seq[li], "np"):
                 seq[li].np = sum(p.numel() for p in seq[li].parameters())
         print(f"[access] {op} at layers {sp['layers']}", flush=True)
-    for mod in model.modules():  # new BNs must match Ultralytics' BN settings (eps 1e-3, momentum 0.03), or step 0 is not exact
-        if isinstance(mod, nn.BatchNorm2d):
+    for mod in model.modules():  # only BNs created here get Ultralytics' settings (eps 1e-3, momentum 0.03); existing BNs keep theirs
+        if isinstance(mod, nn.BatchNorm2d) and id(mod) not in old_bn:
             mod.eps, mod.momentum = 1e-3, 0.03
