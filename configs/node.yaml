@@ -1,11 +1,12 @@
-# R12 J 100 ep. 100-epoch confirm, seed 0, R9b recipe (batch 16).
+# Sci Rep ablation 1: Stack J without DySample, Gate and PConv-MF (Ctx skip + FB kept). 100 ep, seed 0,
+# J recipe (batch 16 total), DDP over Kaggle's 2 T4s (8 per GPU).
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r12j100
+  model: abl1_noheadadd
   epochs: 100
   imgsz: 1280
   seeds:
@@ -35,14 +36,10 @@ train:
     head_ctx:
       src: 11
       dim: 32
-    r12_neck:
-      dysample: 15
-    r12_head:
-      l11gate: true
-      pconv_mf: true
   extra:
-    workers: 8
+    workers: 4
     cache: false
+    device: 0,1
 eval:
   imgsz:
   - 1280
