@@ -213,3 +213,6 @@ def apply(model, specs: list) -> None:
             if hasattr(seq[li], "np"):
                 seq[li].np = sum(p.numel() for p in seq[li].parameters())
         print(f"[access] {op} at layers {sp['layers']}", flush=True)
+    for mod in model.modules():  # new BNs must match Ultralytics' BN settings (eps 1e-3, momentum 0.03), or step 0 is not exact
+        if isinstance(mod, nn.BatchNorm2d):
+            mod.eps, mod.momentum = 1e-3, 0.03
