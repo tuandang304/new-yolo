@@ -1,50 +1,24 @@
-# R12 J 100 ep. 100-epoch confirm, seed 0, R9b recipe (batch 16).
+# Sci Rep measure: frozen 100-ep checkpoints only, no training, no selection.
+# test-dev AP of CtxGate-YOLO (Stack J, 3 seeds) and the three nano baselines (3 seeds each), then FP16 batch-1
+# latency of one checkpoint per model on the same T4 in one session (two passes in opposite order).
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
-- train
-train:
-  model: r12j100
-  epochs: 100
-  imgsz: 1280
-  seeds:
-  - 0
-  arch:
-    yaml: models/pra_a20_o2m.yaml
-    head_c3: 64
-    stride_mult: 64
-    lowrank:
-      layers:
-      - 3
-      - 5
-      - 8
-      ratio: 0.5
-    inherit:
-      ranges:
-      - - 0
-        - 6
-        - 0
-      - - 7
-        - 19
-        - 1
-      detect_levels:
-      - 0
-      - 1
-    head_fb: true
-    head_ctx:
-      src: 11
-      dim: 32
-    r12_neck:
-      dysample: 15
-    r12_head:
-      l11gate: true
-      pconv_mf: true
-  extra:
-    workers: 8
-    cache: false
-eval:
-  imgsz:
-  - 1280
-  splits:
-  - valid
+- measure
+measure:
+  split: test
+  latency: true
+  models:
+  - {tag: ctxgate_s0, family: ultralytics, ckpt: weights/ctxgate_s0.pt, imgsz: 1280, save_dets: true, latency: true}
+  - {tag: ctxgate_s1, family: ultralytics, ckpt: weights/ctxgate_s1.pt, imgsz: 1280, save_dets: true}
+  - {tag: ctxgate_s2, family: ultralytics, ckpt: weights/ctxgate_s2.pt, imgsz: 1280, save_dets: true}
+  - {tag: yolo26n_s0, family: ultralytics, ckpt: weights/yolo26n_s0.pt, imgsz: 640, save_dets: true, latency: true}
+  - {tag: yolo26n_s1, family: ultralytics, ckpt: weights/yolo26n_s1.pt, imgsz: 640}
+  - {tag: yolo26n_s2, family: ultralytics, ckpt: weights/yolo26n_s2.pt, imgsz: 640}
+  - {tag: yolo11n_s0, family: ultralytics, ckpt: weights/yolo11n_s0.pt, imgsz: 640, latency: true}
+  - {tag: yolo11n_s1, family: ultralytics, ckpt: weights/yolo11n_s1.pt, imgsz: 640}
+  - {tag: yolo11n_s2, family: ultralytics, ckpt: weights/yolo11n_s2.pt, imgsz: 640}
+  - {tag: yolov10n_s0, family: ultralytics, ckpt: weights/yolov10n_s0.pt, imgsz: 640, latency: true}
+  - {tag: yolov10n_s1, family: ultralytics, ckpt: weights/yolov10n_s1.pt, imgsz: 640}
+  - {tag: yolov10n_s2, family: ultralytics, ckpt: weights/yolov10n_s2.pt, imgsz: 640}
