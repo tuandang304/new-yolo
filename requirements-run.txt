@@ -4,3 +4,4 @@ rfdetr[train]==1.11.2
 pycocotools==2.0.11
 huggingface_hub>=0.34
 pyyaml>=6
+fvcore
