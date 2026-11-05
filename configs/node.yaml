@@ -1,3 +1,4 @@
+# R12 J 100 ep seed 1. 100-epoch confirm, seed 1, R9b recipe (batch 16).
 # R12 Stack H. Round 12 screen: 30 epochs, seed 0, batch 8 on one Kaggle T4.
 # R11 Stack A: S1+S2+R+no DIM. Round 11 screen: 30 epochs, seed 0, batch 8 on one Kaggle T4.
 # T4 re-measurement of every number in the paper. No training; val only.
@@ -38,11 +39,13 @@ measure:
   - {tag: rfdetr_nano, family: rfdetr, imgsz: 640, pos_enc: 40, latency: true, save_dets: true}
 - train
 train:
+  model: r12j100
+  epochs: 100
   model: r12sh
   epochs: 30
   imgsz: 1280
   seeds:
-  - 0
+  - 1
   arch:
     yaml: models/pra_a20_o2m.yaml
     head_c3: 64
@@ -116,6 +119,11 @@ eval:
     head_ctx:
       src: 11
       dim: 32
+    r12_neck:
+      dysample: 15
+    r12_head:
+      l11gate: true
+      pconv_mf: true
     r12_head:
       edge_img: true
       density: true
@@ -124,7 +132,6 @@ eval:
   extra:
     workers: 8
     cache: false
-    batch: 8
 eval:
   imgsz:
   - 1088
