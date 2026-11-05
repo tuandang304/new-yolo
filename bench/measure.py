@@ -6,6 +6,7 @@ Revision options (IEEE Access, 2026-11-05): cfg["split"] picks valid or test; a 
 single-/multi-label cap grid (300/500/1000); cfg["latency_square"] pads each image to a square before the
 Ultralytics letterbox so the network sees exactly imgsz x imgsz; cfg["rfdetr_complexity"] recounts RF-DETR-Nano
 parameters and FLOPs at its published configuration.
+Writes $ORX_OUTPUT_DIR/measurements.json after every step, so a partial run keeps what it finished. Val only.
 """
 from __future__ import annotations
 
@@ -132,6 +133,10 @@ def run(cfg: dict, root: Path, out: Path, device: str = "0", limit: int | None =
     split = cfg.get("split", "valid")
     gt = json.loads((root / f"coco_{split}.json").read_text())
     ign = json.loads((root / f"ignore_{split}.json").read_text())
+def run(cfg: dict, root: Path, out: Path, device: str = "0", limit: int | None = None) -> dict:
+    from PIL import Image
+    gt = json.loads((root / "coco_valid.json").read_text())
+    ign = json.loads((root / "ignore_valid.json").read_text())
     if limit:  # local smoke test only
         gt = {**gt, "images": gt["images"][:limit]}
         keep = {im["id"] for im in gt["images"]}
@@ -146,6 +151,9 @@ def run(cfg: dict, root: Path, out: Path, device: str = "0", limit: int | None =
             res["rfdetr_complexity"] = {"error": repr(e)[:300]}
             print(f"[rfdetr_complexity] failed: {e!r}", flush=True)
         path.write_text(json.dumps(res, indent=1))
+    res = {"gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu", "split": "valid", "limit": limit, "models": {}}
+    path = out / "measurements.json"
+    out.mkdir(parents=True, exist_ok=True)
 
     for m in cfg["models"]:
         tag, sz = m["tag"], m["imgsz"]
@@ -169,6 +177,17 @@ def run(cfg: dict, root: Path, out: Path, device: str = "0", limit: int | None =
                 row["multi_md500_true"] = {k: v for k, v in E.coco_eval(gt, top_k(dets, 500), ignore=ign).items() if k != "per_class"}
         if m.get("save_dets"):
             with gzip.open(out / f"dets_{tag}_{split}_{sz}.json.gz", "wt") as f:
+        dets = P.predict_split(pred, root, "valid", sz, gt, max_det=1000)
+        row = {"imgsz": sz, "family": m["family"], "infer_sec": round(time.time() - t0, 1), "n_dets": len(dets)}
+        row["multi_md1000"] = E.coco_eval(gt, dets, ignore=ign)
+        row["multi_md500"] = {k: v for k, v in E.coco_eval(gt, top_k(dets, 300 if m["family"] == "rfdetr" else 500), ignore=ign).items() if k != "per_class"}
+        if m.get("single"):
+            MULTI_LABEL["on"] = False
+            d1 = P.predict_split(pred, root, "valid", sz, gt, max_det=500)
+            row["single_md500"] = {k: v for k, v in E.coco_eval(gt, d1, ignore=ign).items() if k != "per_class"}
+            MULTI_LABEL["on"] = True
+        if m.get("save_dets"):
+            with gzip.open(out / f"dets_{tag}_valid_{sz}.json.gz", "wt") as f:
                 json.dump(dets, f)
         free(pred)
         res["models"][tag] = row
@@ -185,6 +204,13 @@ def run(cfg: dict, root: Path, out: Path, device: str = "0", limit: int | None =
     if cfg.get("latency_square"):
         images = [square(im) for im in images]
     res["latency_input"] = "square (padded before letterbox)" if cfg.get("latency_square") else "rectangular letterbox"
+        print("RESULT " + json.dumps({"kind": "measure", "tag": tag, "imgsz": sz, "gpu": res["gpu"], "AP": h["mAP50_95"], "AP50": h["mAP50"], "AP_tiny": h["AP_tiny"],
+                                      "AP_small": h["AP_small"], "AP_medium": h["AP_medium"], "AP_large": h["AP_large"], "sec": round(time.time() - t0, 1)}), flush=True)
+
+    if not torch.cuda.is_available():
+        return res
+    names = sorted(im["file_name"] for im in gt["images"])[: cfg.get("latency_images", 200)]
+    images = [np.asarray(Image.open(root / "valid" / "images" / n).convert("RGB")) for n in names]
     rows = [m for m in cfg["models"] if m.get("latency")]
     pooled = defaultdict(list)
     for p in range(cfg.get("latency_passes", 2)):  # two passes in opposite order, to expose drift over the session
@@ -202,6 +228,7 @@ def run(cfg: dict, root: Path, out: Path, device: str = "0", limit: int | None =
         r = res["models"][tag]
         r["latency_median_ms"], r["latency_p90_ms"] = round(float(np.median(ts)), 2), round(float(np.percentile(ts, 90)), 2)
         print("RESULT " + json.dumps({"kind": "latency", "input": res["latency_input"], "tag": tag, "gpu": res["gpu"], "median_ms": r["latency_median_ms"], "p90_ms": r["latency_p90_ms"],
+        print("RESULT " + json.dumps({"kind": "latency", "tag": tag, "gpu": res["gpu"], "median_ms": r["latency_median_ms"], "p90_ms": r["latency_p90_ms"],
                                       "passes": r["latency_pass_median_ms"], "precision": r["latency_precision"]}), flush=True)
     path.write_text(json.dumps(res, indent=1))
     return res
