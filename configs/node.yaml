@@ -1,4 +1,4 @@
-# R12 J 100 ep. 100-epoch confirm, seed 0, R9b recipe (batch 16).
+# R12 J 100 ep seed 1. 100-epoch confirm, seed 1, R9b recipe (batch 16).
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
@@ -9,7 +9,7 @@ train:
   epochs: 100
   imgsz: 1280
   seeds:
-  - 0
+  - 1
   arch:
     yaml: models/pra_a20_o2m.yaml
     head_c3: 64
