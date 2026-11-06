@@ -5,7 +5,7 @@
 # Recipe v1 = Ultralytics standard hyperparameters (as in YOLO26 / FBRT-YOLO) + R0 (optimizer forced to MuSGD,
 # lr0 0.01, momentum 0.9 = what `auto` picked in the old 100-ep runs; effective batch 64 through nbs) + A
 # (close_mosaic 0: mosaic stays on to the end; all 6 earlier 100-ep runs lost 0.3-0.5 val once mosaic closed).
-smoke: true
+smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
