@@ -1,3 +1,4 @@
+# Access-1 at 640: the 100-epoch confirm recipe with train imgsz 640; eval at 640 (headline) and 1280.
 # Sci Rep measure: frozen 100-ep checkpoints only, no training, no selection.
 # test-dev AP of CtxGate-YOLO (Stack J, 3 seeds) and the three nano baselines (3 seeds each), then FP16 batch-1
 # latency of one checkpoint per model on the same T4 in one session (two passes in opposite order).
@@ -57,6 +58,9 @@ measure:
   - {tag: rfdetr_nano, family: rfdetr, imgsz: 640, pos_enc: 40, latency: true, save_dets: true}
 - train
 train:
+  model: access1_640
+  epochs: 100
+  imgsz: 640
   model: r12j100
   epochs: 100
   model: r12sh
@@ -65,8 +69,9 @@ train:
   seeds:
   - 1
   arch:
-    yaml: models/pra_a20_o2m.yaml
+    yaml: models/pra_a_o2m.yaml
     head_c3: 64
+    stride_mult: 32
     stride_mult: 64
   model: r6c_100
   epochs: 100
@@ -104,11 +109,8 @@ train:
     inherit:
       ranges:
       - - 0
-        - 6
-        - 0
-      - - 7
         - 19
-        - 1
+        - 0
       detect_levels:
       - 0
       - 0
@@ -133,6 +135,30 @@ eval:
       detect_levels:
       - 0
       - 1
+    access:
+    - op: lowrank_conv
+      layers: [7]
+      rank: 64
+    - op: lowrank_pw
+      layers: [9]
+      attr: cv2
+      rank: 128
+    - op: hybrid_c3k
+      layers: [8]
+      idx: 0
+      replace: true
+      ratio: 2
+      d: 32
+    - op: hybrid_c3k
+      layers: [8]
+      idx: 1
+      replace: true
+      ratio: 2
+      d: 32
+    - op: linattn_psa
+      layers: [10]
+    - op: repconv
+      layers: [13]
     head_fb: true
     head_ctx:
       src: 11
@@ -150,8 +176,14 @@ eval:
   extra:
     workers: 8
     cache: false
+    optimizer: MuSGD
+    lr0: 0.01
+    momentum: 0.9
+    warmup_bias_lr: 0.0
 eval:
   imgsz:
+  - 640
+  - 1280
   - 1088
   splits:
   - valid
