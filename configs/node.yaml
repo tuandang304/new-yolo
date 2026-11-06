@@ -1,19 +1,19 @@
-# Access-1: see the experiment description. Base Access-0; 30-epoch screen, MuSGD forced.
+# Access-1 ablation AB1: stride-64 AvgPool deep stage restored. Same 30-epoch screen recipe as Access-1.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: access1
+  model: access1_ab1
   epochs: 30
   imgsz: 1280
   seeds:
   - 0
   arch:
-    yaml: models/pra_a_o2m.yaml
+    yaml: models/pra_a20_o2m.yaml
     head_c3: 64
-    stride_mult: 32
+    stride_mult: 64
     lowrank:
       layers:
       - 3
@@ -22,35 +22,38 @@ train:
     inherit:
       ranges:
       - - 0
-        - 19
+        - 6
         - 0
+      - - 7
+        - 19
+        - 1
       detect_levels:
       - 0
       - 1
     access:
     - op: lowrank_conv
-      layers: [7]
+      layers: [8]
       rank: 64
     - op: lowrank_pw
-      layers: [9]
+      layers: [10]
       attr: cv2
       rank: 128
     - op: hybrid_c3k
-      layers: [8]
+      layers: [9]
       idx: 0
       replace: true
       ratio: 2
       d: 32
     - op: hybrid_c3k
-      layers: [8]
+      layers: [9]
       idx: 1
       replace: true
       ratio: 2
       d: 32
     - op: linattn_psa
-      layers: [10]
+      layers: [11]
     - op: repconv
-      layers: [13]
+      layers: [14]
   extra:
     workers: 8
     cache: false
