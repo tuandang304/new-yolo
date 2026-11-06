@@ -1,12 +1,12 @@
-# Access-1: see the experiment description. Base Access-0; 30-epoch screen, MuSGD forced.
+# Access-1 confirm: 100 epochs, seed 0, same optimizer as R9b's 100-epoch run (MuSGD lr0 0.01, momentum 0.9, warmup_bias_lr 0).
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: access1
-  epochs: 30
+  model: access1_100
+  epochs: 100
   imgsz: 1280
   seeds:
   - 0
