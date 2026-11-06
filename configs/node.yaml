@@ -1,12 +1,14 @@
-# Stack N: Stack A + DySample + scene vector GAP(L11)->MLP(64) -> FiLM on cls input + per-class logit prior b(s) + aux log(1+count) loss (0.05).
-# Screen: 30 epochs, seed 0, batch 8 on one Kaggle T4 (R12 setup).
+# Stack N under recipe v1: 30 epochs, seed 0, Colab T4 (batch 8; nbs 64 keeps the effective batch at 64).
+# Same architecture as Stack N (scene vector -> FiLM + b(s) + aux count loss 0.05); only the recipe changes:
+# optimizer forced to MuSGD lr0 0.01 momentum 0.9 (was auto -> AdamW 0.000714) and close_mosaic 0.
+# Paired with the recipe-v1 control screen (node 7dd5a3be). Includes the fp16 scene-MLP cast fix.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r13n
+  model: v1scr_n
   epochs: 30
   imgsz: 1280
   seeds:
@@ -49,6 +51,10 @@ train:
     workers: 8
     cache: false
     batch: 8
+    optimizer: MuSGD
+    lr0: 0.01
+    momentum: 0.9
+    close_mosaic: 0
 eval:
   imgsz:
   - 1280

@@ -203,9 +203,9 @@ def make_subset(root: Path, out: Path, n: dict[str, int], seed: int = 0) -> Path
     return out
 
 
-def figure_samples(root: Path, k: int = 16, seed: int = 2026) -> list[str]:
-    """Fixed qualitative sample set on test-dev: stratified by GT-count quartile, deterministic."""
-    coco = json.loads((root / "coco_test.json").read_text())
+def figure_samples(root: Path, k: int = 16, seed: int = 2026, split: str = "test") -> list[str]:
+    """Fixed qualitative sample set (test-dev by default): stratified by GT-count quartile, deterministic."""
+    coco = json.loads((root / f"coco_{split}.json").read_text())
     counts = {im["id"]: 0 for im in coco["images"]}
     for a in coco["annotations"]:
         counts[a["image_id"]] += 1
