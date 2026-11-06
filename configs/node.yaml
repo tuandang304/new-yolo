@@ -1,12 +1,12 @@
-# Access-1 ablation AB3: original C3k2 at L8. Same 30-epoch screen recipe as Access-1.
+# Access-1 ablation AB3 at 100 epochs (paper-grade): original C3k2 at L8. Same optimizer as the Access-1 100-epoch confirm.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: access1_ab3
-  epochs: 30
+  model: access1_ab3_100
+  epochs: 100
   imgsz: 1280
   seeds:
   - 0
