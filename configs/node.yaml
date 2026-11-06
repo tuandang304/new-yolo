@@ -1,12 +1,12 @@
-# Access-1 ablation AB5: plain conv at L13. Same 30-epoch screen recipe as Access-1.
+# Access-1 ablation AB5 at 100 epochs (paper-grade): plain conv at L13. Same optimizer as the Access-1 100-epoch confirm.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: access1_ab5
-  epochs: 30
+  model: access1_ab5_100
+  epochs: 100
   imgsz: 1280
   seeds:
   - 0
