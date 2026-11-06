@@ -1,6 +1,27 @@
-# Iso-FLOPs control: YOLO26n @800, 100 epochs
+# Access paper control: plain YOLO26n fine-tuned from COCO at 1280, 100 epochs, seed 0.
+# Optimizer block identical to Access-1 / R9b 100-ep: MuSGD lr0 0.01, momentum 0.9, warmup_bias_lr 0, batch 16,
+# Ultralytics default close_mosaic 10 (NOT the Stack-line recipe v1, which sets close_mosaic 0).
 smoke: false
 data_root: /tmp/visdrone/data
-tasks: [data, train]
-train: {model: yolo26n, epochs: 100, imgsz: 800, seeds: [0]}
-eval: {imgsz: [800], splits: [valid]}   # screening: val only (test-dev stays closed)
+tasks:
+- data
+- train
+train:
+  model: yolo26n_1280
+  epochs: 100
+  imgsz: 1280
+  seeds:
+  - 0
+  extra:
+    workers: 8
+    cache: false
+    batch: 16
+    optimizer: MuSGD
+    lr0: 0.01
+    momentum: 0.9
+    warmup_bias_lr: 0.0
+eval:
+  imgsz:
+  - 1280
+  splits:
+  - valid
