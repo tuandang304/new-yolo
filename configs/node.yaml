@@ -1,56 +1,20 @@
-# Stack N: Stack A + DySample + scene vector GAP(L11)->MLP(64) -> FiLM on cls input + per-class logit prior b(s) + aux log(1+count) loss (0.05).
-# Screen: 30 epochs, seed 0, batch 8 on one Kaggle T4 (R12 setup).
+# Stack N screen eval: no training, no selection beyond the pre-set pass rule.
+# The four scene-vector runs (N, -aux, -FiLM, -b(s)) finished all 30 epochs but crashed in Ultralytics' final fp16 val
+# (sc_mlp received a float input with half weights; fixed in bench/pra.py). This job scores the five downloaded 30-ep
+# best.pt files on val with the project evaluator (ign-aware, multi-label NMS, max_det 1000) and saves the detections
+# for the confusion analysis. The control finished normally; it is re-scored here so all five come from one session.
+# FP16 batch-1 latency of N and the control on the same T4, two passes in opposite order.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
-- train
-train:
-  model: r13n
-  epochs: 30
-  imgsz: 1280
-  seeds:
-  - 0
-  arch:
-    yaml: models/pra_a20_o2m.yaml
-    head_c3: 64
-    stride_mult: 64
-    lowrank:
-      layers:
-      - 3
-      - 5
-      - 8
-      ratio: 0.5
-    inherit:
-      ranges:
-      - - 0
-        - 6
-        - 0
-      - - 7
-        - 19
-        - 1
-      detect_levels:
-      - 0
-      - 1
-    head_fb: true
-    head_ctx:
-      src: 11
-      dim: 32
-    r12_neck:
-      dysample: 15
-    r12_head:
-      scene:
-        dim: 64
-        film: true
-        bias: true
-        aux: true
-    scene_loss: 0.05
-  extra:
-    workers: 8
-    cache: false
-    batch: 8
-eval:
-  imgsz:
-  - 1280
-  splits:
-  - valid
+- measure
+measure:
+  split: valid
+  latency: true
+  models:
+  - {tag: n_s0, family: ultralytics, ckpt: weights/r13n_s0.pt, imgsz: 1280, save_dets: true, latency: true}
+  - {tag: ctrl_s0, family: ultralytics, ckpt: weights/r13n_ctrl_s0.pt, imgsz: 1280, save_dets: true, latency: true}
+  - {tag: noaux_s0, family: ultralytics, ckpt: weights/r13n_noaux_s0.pt, imgsz: 1280, save_dets: true}
+  - {tag: nofilm_s0, family: ultralytics, ckpt: weights/r13n_nofilm_s0.pt, imgsz: 1280, save_dets: true}
+  - {tag: nobias_s0, family: ultralytics, ckpt: weights/r13n_nobias_s0.pt, imgsz: 1280, save_dets: true}

@@ -592,7 +592,7 @@ class R12Detect(R11Detect):
         d0 = None
         sv = None
         if o.get("scene") and self._ctxraw is not None:
-            sv = self.sc_mlp(self._ctxraw.float().mean((2, 3))).to(x[0].dtype)
+            sv = self.sc_mlp(self._ctxraw.mean((2, 3)).to(self.sc_mlp[0].weight.dtype)).to(x[0].dtype)  # weight dtype: fp32 under AMP, fp16 in Ultralytics' half val
             if self.training and getattr(self, "sc_aux", None) is not None:
                 self._sc_pred = self.sc_aux(sv)
         for i in range(self.nl):
