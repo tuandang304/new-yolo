@@ -1,11 +1,12 @@
-# R12 Stack J. Round 12 screen: 30 epochs, seed 0, batch 8 on one Kaggle T4.
+# Stack N: Stack A + DySample + scene vector GAP(L11)->MLP(64) -> FiLM on cls input + per-class logit prior b(s) + aux log(1+count) loss (0.05).
+# Screen: 30 epochs, seed 0, batch 8 on one Kaggle T4 (R12 setup).
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r12sj
+  model: r13n
   epochs: 30
   imgsz: 1280
   seeds:
@@ -38,8 +39,12 @@ train:
     r12_neck:
       dysample: 15
     r12_head:
-      l11gate: true
-      pconv_mf: true
+      scene:
+        dim: 64
+        film: true
+        bias: true
+        aux: true
+    scene_loss: 0.05
   extra:
     workers: 8
     cache: false

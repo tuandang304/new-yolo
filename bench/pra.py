@@ -283,6 +283,7 @@ class LowRankConv(nn.Module):
 #   r12_neck: {carafe: [12, 15], hpconcat: [13, 16], updw: 12, upmix: 12, dysample: 15, gated_concat: 16, conv_dw: 18}
 #   r12_head: {br, edge_img, density, scr, route, mona: {pos, split, ctx, edge}, freq, edge_l3, edge_m3, l11gate, pconv_mf, dquery, route_ctx}
 #   density_loss: weight of the normalised auxiliary density MSE (needs r12_head.density)
+#   r12_head.scene: {dim, film, bias, aux} scene vector from GAP(L11) (Stack N); scene_loss: weight of its aux count MSE
 # ----------------------------------------------------------------------------------------------------------------------
 _TAP = {}
 
@@ -589,6 +590,11 @@ class R12Detect(R11Detect):
         b2c, ctxf = getattr(self, "b2c", None), getattr(self, "_ctxf", None)
         boxes, scores = [], []
         d0 = None
+        sv = None
+        if o.get("scene") and self._ctxraw is not None:
+            sv = self.sc_mlp(self._ctxraw.float().mean((2, 3))).to(x[0].dtype)
+            if self.training and getattr(self, "sc_aux", None) is not None:
+                self._sc_pred = self.sc_aux(sv)
         for i in range(self.nl):
             xi = x[i]
             ci, bi = xi, xi
@@ -611,6 +617,9 @@ class R12Detect(R11Detect):
                 ci = ci + b2c[i](h0)
             if ctxf is not None:
                 ci = ci + self.ctxo[i](F.interpolate(ctxf, size=size, mode="nearest"))
+            if sv is not None and getattr(self, "sc_film", None) is not None:  # N: scene FiLM
+                g, bt = self.sc_film[i](sv)[:, :, None, None].chunk(2, 1)
+                ci = ci * (1 + torch.tanh(g)) + bt
             if o.get("l11gate") and self._ctxraw is not None:  # J3
                 g = F.interpolate(self.j3[i](self._ctxraw), size=size, mode="bilinear", align_corners=False)
                 ci = ci * (1 + torch.tanh(g))
@@ -638,6 +647,8 @@ class R12Detect(R11Detect):
             if o.get("pconv_mf"):
                 u2 = u2 + self.mf[i](u)
             z = cls_head[i][2](u2)
+            if sv is not None and getattr(self, "sc_bias", None) is not None:  # N: scene prior on logits
+                z = z + self.sc_bias(sv)[:, :, None, None]
             if o.get("scr") and i == 0:  # H3
                 z = z + F.max_pool2d(self.scr(F.interpolate(u, scale_factor=2, mode="nearest")), 2)
             if o.get("dquery") and i == 0:  # M1
@@ -744,6 +755,21 @@ def _r12_surgery(model, arch: dict) -> None:
         det.mona = nn.ModuleList(Mona(c, 16, mo.get("split", False), dctx if mo.get("ctx") else 0, mo.get("edge", False)) for c in c3)
     if o.get("pconv_mf"):
         det.mf = nn.ModuleList(PConvMF(c) for c in c3)
+    if o.get("scene"):  # N: one scene vector per image from global-pooled L11 (stride-64 C2PSA output)
+        sc = o["scene"]
+        assert craw, "scene needs head_ctx (L11 raw features)"
+        d = int(sc.get("dim", 64))
+        det.sc_mlp = nn.Sequential(nn.Linear(craw, d), nn.SiLU(), nn.Linear(d, d), nn.SiLU())
+        if sc.get("film", True):  # per-image, per-channel scale/shift of the cls input; zero init = identity
+            det.sc_film = nn.ModuleList(nn.Linear(d, 2 * c) for c in chx)
+            for m in det.sc_film:
+                nn.init.zeros_(m.weight); nn.init.zeros_(m.bias)
+        if sc.get("bias", True):  # per-image prior on the class logits; zero init
+            det.sc_bias = nn.Linear(d, nc)
+            nn.init.zeros_(det.sc_bias.weight); nn.init.zeros_(det.sc_bias.bias)
+        if sc.get("aux", False):  # training-only head: log(1 + objects per class) of the image
+            det.sc_aux = nn.Linear(d, nc)
+        det._sc_pred = None
     if o.get("scr"):
         det.scr = nn.Sequential(_Conv(c3[0], c3[0], 3, 1, g=c3[0]), zc(c3[0], nc))
     if o.get("dquery"):
@@ -789,6 +815,43 @@ class DensityLoss:
             print(f"[pra] density aux: nmse {mse.item():.4f} det_loss/img {loss.sum().item() / B:.3f}", flush=True)
         self.det._dens = None
         return loss + self.w * mse * B / loss.numel(), items  # the trainer sums the loss vector
+
+
+class SceneLoss:
+    """Wraps the detection criterion: + w * MSE between the scene head and log(1 + objects per class) of each image."""
+
+    def __init__(self, crit, det, w: float):
+        self.crit, self.det, self.w, self.n = crit, det, w, 0
+
+    def __getattr__(self, name):
+        if name.startswith("__") or name in ("crit", "det", "w", "n"):
+            raise AttributeError(name)
+        return getattr(self.crit, name)
+
+    def __call__(self, preds, batch):
+        loss, items = self.crit(preds, batch)
+        p = getattr(self.det, "_sc_pred", None)
+        if p is None or not self.w:
+            return loss, items
+        B, nc = p.shape
+        t = torch.zeros(B, nc, device=p.device)
+        cls = batch["cls"].to(p.device).long().view(-1)
+        if cls.numel():
+            bi = batch["batch_idx"].to(p.device).long().view(-1)
+            t.index_put_((bi, cls), torch.ones_like(cls, dtype=t.dtype), accumulate=True)
+        mse = F.mse_loss(p.float(), torch.log1p(t))
+        self.n += 1
+        if self.n % 500 == 1:
+            print(f"[pra] scene aux: mse {mse.item():.4f} det_loss/img {loss.sum().item() / B:.3f}", flush=True)
+        self.det._sc_pred = None
+        return loss + self.w * mse * B / loss.numel(), items  # the trainer sums the loss vector
+
+
+class SceneLossModel(_DetectionModel):
+    """DetectionModel whose criterion adds the auxiliary scene-count loss; `scene_loss` is set by the trainer."""
+
+    def init_criterion(self):
+        return SceneLoss(super().init_criterion(), self.model[-1], self.scene_loss)
 
 
 class DensityLossModel(_DetectionModel):
@@ -1070,6 +1133,8 @@ def make_trainer(arch: dict):
                 model.__class__, model.pair_loss = PairLossModel, arch["pair_loss"]
             if arch.get("density_loss"):
                 model.__class__, model.density_loss = DensityLossModel, float(arch["density_loss"])
+            if arch.get("scene_loss"):
+                model.__class__, model.scene_loss = SceneLossModel, float(arch["scene_loss"])
             n_par = sum(p.numel() for p in model.parameters())
             print(f"[pra] arch={arch} params={n_par / 1e6:.3f}M", flush=True)
             return model
