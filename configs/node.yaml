@@ -1,3 +1,4 @@
+# Stack O ablation: no P3 bottleneck expansion; CPU 1.574 M, 17.80 G
 # Stack O (round 13): Stack A + DySample + O-1 stride-4 stem into L17 + O-2 top-down guided stride-4 feature
 # + O-3 training-only stride-4 centre-heatmap loss + O-4 extra full-width C3k in L4 and L17.
 # CPU count: 1.663 M inference params, 22.31 GFLOPs @1280 (control 1.538 M, 14.70 G); step-0 output == control (max diff 0).
@@ -11,7 +12,7 @@ tasks:
 - data
 - train
 train:
-  model: r13o
+  model: r13o_nop3
   epochs: 30
   imgsz: 1280
   seeds:
@@ -46,7 +47,6 @@ train:
     stack_o:
       s4: {at: 16, src: 2, guided: true, mid: 32, ch: 64}
       aux: {w: 0.25, max_px: 32}
-      p3_expand: [4, 17]
   extra:
     workers: 8
     cache: false
