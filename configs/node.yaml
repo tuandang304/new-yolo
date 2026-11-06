@@ -1,12 +1,12 @@
-# Access-1 ablation AB2: no low-rank compression of L7 / SPPF cv2. Same 30-epoch screen recipe as Access-1.
+# Access-1 ablation AB2 at 100 epochs (paper-grade): full-rank deep conv and SPPF. Same optimizer as the Access-1 100-epoch confirm.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: access1_ab2
-  epochs: 30
+  model: access1_ab2_100
+  epochs: 100
   imgsz: 1280
   seeds:
   - 0
