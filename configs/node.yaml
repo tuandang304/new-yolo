@@ -1,11 +1,11 @@
-# Access-1: see the experiment description. Base Access-0; 30-epoch screen, MuSGD forced.
+# Access-1 ablation AB4: softmax C2PSA kept. Same 30-epoch screen recipe as Access-1.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: access1
+  model: access1_ab4
   epochs: 30
   imgsz: 1280
   seeds:
@@ -47,8 +47,6 @@ train:
       replace: true
       ratio: 2
       d: 32
-    - op: linattn_psa
-      layers: [10]
     - op: repconv
       layers: [13]
   extra:
