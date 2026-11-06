@@ -67,7 +67,23 @@ def _attach_log(y) -> None:
                                        "detect_strides": getattr(m.model[-1], "stride", torch.zeros(0)).tolist()}), flush=True)
 
     def on_fit_epoch_end(tr):
-        loss = {n.replace("_loss", ""): round(float(v), 4) for n, v in zip(tr.loss_names, tr.tloss)} if tr.tloss is not None else {}
+        try:
+            _epoch_line(tr)
+        except Exception as e:  # noqa: BLE001 - a log-format bug must not kill a multi-hour run; reported, not hidden
+            if not getattr(tr, "_epoch_log_warned", False):
+                tr._epoch_log_warned = True
+                import traceback
+                print(f"[warn] epoch log line failed: {e!r}", flush=True)
+                traceback.print_exc()
+
+    def _epoch_line(tr):
+        tl = tr.tloss
+        if tl is None:
+            loss = {}
+        elif isinstance(tl, dict):  # Ultralytics 8.4: {'box_loss': t, 'cls_loss': t, ...}
+            loss = {str(k).replace("_loss", ""): round(float(v), 4) for k, v in tl.items()}
+        else:
+            loss = {n.replace("_loss", ""): round(float(v), 4) for n, v in zip(tr.loss_names, tl)}
         mt = tr.metrics or {}
         lr = round(float(next(iter(tr.lr.values()))), 6) if getattr(tr, "lr", None) else None
         et = float(getattr(tr, "epoch_time", 0) or 0)
