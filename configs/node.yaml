@@ -1,12 +1,12 @@
-# Access-1 ablation AB4: softmax C2PSA kept. Same 30-epoch screen recipe as Access-1.
+# Access-1 ablation AB4 at 100 epochs (paper-grade): softmax C2PSA. Same optimizer as the Access-1 100-epoch confirm.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: access1_ab4
-  epochs: 30
+  model: access1_ab4_100
+  epochs: 100
   imgsz: 1280
   seeds:
   - 0
