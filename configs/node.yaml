@@ -1,12 +1,12 @@
-# Access-1 ablation AB1: stride-64 AvgPool deep stage restored. Same 30-epoch screen recipe as Access-1.
+# Access-1 ablation AB1 at 100 epochs (paper-grade): keep stride-64 pool. Same optimizer as the Access-1 100-epoch confirm.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: access1_ab1
-  epochs: 30
+  model: access1_ab1_100
+  epochs: 100
   imgsz: 1280
   seeds:
   - 0
