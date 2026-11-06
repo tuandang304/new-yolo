@@ -1,15 +1,15 @@
-# Access-1 confirm: 100 epochs, seed 0, same optimizer as R9b's 100-epoch run (MuSGD lr0 0.01, momentum 0.9, warmup_bias_lr 0).
+# Access-1 seed 2: 100 epochs at 1280, otherwise identical to the seed-0 confirm.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: access1_100
+  model: access1_100_s2
   epochs: 100
   imgsz: 1280
   seeds:
-  - 0
+  - 2
   arch:
     yaml: models/pra_a_o2m.yaml
     head_c3: 64
@@ -29,28 +29,34 @@ train:
       - 1
     access:
     - op: lowrank_conv
-      layers: [7]
+      layers:
+      - 7
       rank: 64
     - op: lowrank_pw
-      layers: [9]
+      layers:
+      - 9
       attr: cv2
       rank: 128
     - op: hybrid_c3k
-      layers: [8]
+      layers:
+      - 8
       idx: 0
       replace: true
       ratio: 2
       d: 32
     - op: hybrid_c3k
-      layers: [8]
+      layers:
+      - 8
       idx: 1
       replace: true
       ratio: 2
       d: 32
     - op: linattn_psa
-      layers: [10]
+      layers:
+      - 10
     - op: repconv
-      layers: [13]
+      layers:
+      - 13
   extra:
     workers: 8
     cache: false
