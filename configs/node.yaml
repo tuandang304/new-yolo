@@ -1,13 +1,13 @@
-# Access-1 confirm: 100 epochs, seed 0, same optimizer as R9b's 100-epoch run (MuSGD lr0 0.01, momentum 0.9, warmup_bias_lr 0).
+# Access-1 at 640: the 100-epoch confirm recipe with train imgsz 640; eval at 640 (headline) and 1280.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: access1_100
+  model: access1_640
   epochs: 100
-  imgsz: 1280
+  imgsz: 640
   seeds:
   - 0
   arch:
@@ -60,6 +60,7 @@ train:
     warmup_bias_lr: 0.0
 eval:
   imgsz:
+  - 640
   - 1280
   splits:
   - valid
