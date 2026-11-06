@@ -861,6 +861,167 @@ class DensityLossModel(_DetectionModel):
         return DensityLoss(super().init_criterion(), self.model[-1], self.density_loss)
 
 
+# ---- Round 13: Stack O (stack-models/proposals/r13/synthesis.md) ----
+#   stack_o.s4:        {at: 16, src: 2, guided: true, mid: 32, ch: 64}
+#                      O-1: Concat `at` ([top-down stride 8, backbone stride 8]) becomes S4Concat, which also appends
+#                      stem(s4) = 1x1(DW3x3(PixelUnshuffle(s4))) with `ch` channels; the next C3k2's cv1 gets a zero-init
+#                      input slice for it, so the network is exactly the base at step 0.
+#                      O-2 (guided: true): s4 = C3k2-light(cat(up2(1x1(top-down stride 8)), L2)); guided: false uses raw L2.
+#   stack_o.aux:       {w: 0.25, max_px: 32} O-3: training-only centre-heatmap focal loss on s4 for objects whose longer
+#                      side is < max_px input pixels (EGSS-style fixed assignment, no TAL); never evaluated at inference.
+#   stack_o.p3_expand: [4, 17] O-4: one extra C3k(c, c, n=2, e=1.0) appended inside each C3k2; cv2 gets a zero-init slice.
+
+class S4Concat(nn.Module):
+    """[top, b8, s4] -> cat(top, b8, stem(s4')) with s4' = guided(top, s4) or s4. Keeps a training-only aux heatmap of s4'."""
+
+    def __init__(self, c_top: int, c_s4: int, guided: bool, mid: int, ch: int, nc: int, aux: bool):
+        super().__init__()
+        from ultralytics.nn.modules.block import C3k2
+        from ultralytics.nn.modules.conv import DWConv
+        self.d = 1
+        self.guided = guided
+        if guided:
+            self.t = _Conv(c_top, mid, 1, 1)
+            self.g = C3k2(mid + c_s4, c_s4, n=1, c3k=False, e=0.25)
+        self.stem = nn.Sequential(nn.PixelUnshuffle(2), DWConv(4 * c_s4, 4 * c_s4, 3), _Conv(4 * c_s4, ch, 1, 1))
+        self.aux = nn.Conv2d(c_s4, nc, 1) if aux else None
+        if aux:
+            nn.init.constant_(self.aux.bias, -4.6)  # prior 0.01 (RetinaNet): keeps the 8M-cell negative term small at step 0
+        self._aux = None
+
+    def forward(self, x):
+        top, b8, s4 = x
+        if self.guided:
+            s4 = self.g(torch.cat([F.interpolate(self.t(top), scale_factor=2.0, mode="nearest"), s4], 1))
+        if self.aux is not None and self.training:
+            self._aux = self.aux(s4)
+        return torch.cat([top, b8, self.stem(s4)], 1)
+
+
+def _widen_in(conv, extra: int) -> int:
+    """Ultralytics Conv: add `extra` zero-weight input channels at the end. Returns the old input width."""
+    old = conv.conv
+    new = nn.Conv2d(old.in_channels + extra, old.out_channels, old.kernel_size, old.stride, old.padding,
+                    old.dilation, old.groups, old.bias is not None)
+    with torch.no_grad():
+        new.weight.zero_()
+        new.weight[:, :old.in_channels] = old.weight
+    conv.conv = new
+    return old.in_channels
+
+
+def _stack_o_surgery(model, arch: dict) -> None:
+    so = arch.get("stack_o") or {}
+    if not so:
+        return
+    from ultralytics.nn.modules.block import C3k
+    seq, det = model.model, model.model[-1]
+    model._o_widen = []  # (layer, attr, old_in): slices whose COCO part is re-copied after inherit()
+    if so.get("s4"):
+        s = so["s4"]
+        at, src = s.get("at", 16), s.get("src", 2)
+        old = seq[at]
+        assert type(old).__name__ == "Concat" and len(old.f) == 2, (at, old)
+        top_src = old.f[0] if old.f[0] != -1 else at - 1
+        ch_of = lambda j: (seq[j].cv2.conv.out_channels if hasattr(seq[j], "cv2") else None)
+        c_top = ch_of(top_src - 1) if ch_of(top_src) is None else ch_of(top_src)  # Upsample/DySample keep channels
+        c_s4, ch = ch_of(src), s.get("ch", 64)
+        new = S4Concat(c_top, c_s4, s.get("guided", True), s.get("mid", 32), ch, det.nc, bool(so.get("aux")))
+        new.i, new.f, new.type = old.i, [*old.f, src], "bench.pra.S4Concat"
+        new.np = sum(p.numel() for p in new.parameters())
+        seq[at] = new
+        model.save = sorted(set(model.save) | {src})
+        nxt = seq[at + 1]
+        model._o_widen.append((at + 1, "cv1", _widen_in(nxt.cv1, ch)))
+        nxt.np = sum(p.numel() for p in nxt.parameters())
+    for i in so.get("p3_expand", []):
+        m = seq[i]
+        assert type(m).__name__ == "C3k2", (i, type(m))
+        m.m.append(C3k(m.c, m.c, n=2, shortcut=True, e=1.0))
+        model._o_widen.append((i, "cv2", _widen_in(m.cv2, m.c)))
+        m.np = sum(p.numel() for p in m.parameters())
+
+
+def stack_o_fix(model, arch: dict, src: str = "yolo26n.pt") -> None:
+    """After inherit(): widened convs missed the shape match; copy their COCO slice and keep the new slice at zero."""
+    if not getattr(model, "_o_widen", None):
+        return
+    from ultralytics.nn.tasks import load_checkpoint
+    w, _ = load_checkpoint(src)
+    sd_src = w.float().state_dict()
+    ranges = (arch.get("inherit") or {}).get("ranges") or [[0, 10 ** 6, 0]]
+    for i, attr, old_in in model._o_widen:
+        si = next(i - o for lo, hi, o in ranges if lo <= i - o <= hi)
+        conv = getattr(model.model[i], attr)
+        with torch.no_grad():
+            conv.conv.weight.zero_()
+            conv.conv.weight[:, :old_in] = sd_src[f"model.{si}.{attr}.conv.weight"]
+            for k in ("weight", "bias", "running_mean", "running_var"):
+                getattr(conv.bn, k).copy_(sd_src[f"model.{si}.{attr}.bn.{k}"])
+        print(f"[pra] stack_o: layer {i}.{attr} COCO slice [:, :{old_in}] from model.{si}, "
+              f"new slice [:, {old_in}:{conv.conv.in_channels}] = 0", flush=True)
+
+
+class S4AuxLoss:
+    """Wraps the detection criterion: + w * CenterNet focal loss between the S4Concat aux heatmap and Gaussian centres
+    of GT boxes with longer side < max_px (ellipse sigma = side / 4 in cells, 7x7 support)."""
+
+    def __init__(self, crit, mod, w: float, max_px: float):
+        self.crit, self.mod, self.w, self.max_px, self.n = crit, mod, w, max_px, 0
+
+    def __getattr__(self, name):
+        if name.startswith("__") or name in ("crit", "mod", "w", "max_px", "n"):
+            raise AttributeError(name)
+        return getattr(self.crit, name)
+
+    def __call__(self, preds, batch):
+        loss, items = self.crit(preds, batch)
+        p = getattr(self.mod, "_aux", None)
+        if p is None or not self.w:
+            return loss, items
+        self.mod._aux = None
+        B, nc, H, W = p.shape
+        dev = p.device
+        stride = batch["img"].shape[-1] / W
+        t = torch.zeros(B * nc * H * W, device=dev)
+        bb = batch["bboxes"].to(dev).float()
+        if bb.numel():
+            cls = batch["cls"].to(dev).long().view(-1)
+            bi = batch["batch_idx"].to(dev).long().view(-1)
+            wg, hg = bb[:, 2] * W, bb[:, 3] * H
+            k = torch.maximum(wg, hg) * stride < self.max_px
+            if k.any():
+                cx = (bb[k, 0] * W).floor().long().clamp(0, W - 1)
+                cy = (bb[k, 1] * H).floor().long().clamp(0, H - 1)
+                sx, sy = (wg[k] / 4).clamp(min=0.5), (hg[k] / 4).clamp(min=0.5)
+                o = torch.arange(-3, 4, device=dev)
+                dy, dx = torch.meshgrid(o, o, indexing="ij")
+                dx, dy = dx.reshape(1, -1), dy.reshape(1, -1)
+                xs, ys = cx[:, None] + dx, cy[:, None] + dy
+                val = torch.exp(-(dx ** 2 / (2 * sx[:, None] ** 2) + dy ** 2 / (2 * sy[:, None] ** 2)))
+                ok = (xs >= 0) & (xs < W) & (ys >= 0) & (ys < H)
+                idx = ((bi[k][:, None] * nc + cls[k][:, None]) * H + ys) * W + xs
+                t.scatter_reduce_(0, idx[ok], val[ok], reduce="amax")
+        t = t.view(B, nc, H, W)
+        q = p.float().sigmoid().clamp(1e-4, 1 - 1e-4)
+        pos = t.eq(1.0)
+        pos_l = (torch.log(q) * (1 - q) ** 2)[pos].sum()
+        neg_l = (torch.log(1 - q) * q ** 2 * (1 - t) ** 4)[~pos].sum()
+        fl = -(pos_l + neg_l) / pos.sum().clamp(min=1)
+        self.n += 1
+        if self.n % 500 == 1:
+            print(f"[pra] s4 aux: focal {fl.item():.4f} pos {int(pos.sum())} det_loss/img {loss.sum().item() / B:.3f}", flush=True)
+        return loss + self.w * fl * B / loss.numel(), items  # the trainer sums the loss vector
+
+
+class S4AuxLossModel(_DetectionModel):
+    """DetectionModel whose criterion adds the Stack O stride-4 aux loss; `s4_aux` = (w, max_px, layer) set by the trainer."""
+
+    def init_criterion(self):
+        w, max_px, at = self.s4_aux
+        return S4AuxLoss(super().init_criterion(), self.model[at], w, max_px)
+
+
 def surgery(model, arch: dict) -> None:
     from ultralytics.nn.modules.conv import Conv, DWConv
     seq = model.model
@@ -1003,6 +1164,7 @@ def surgery(model, arch: dict) -> None:
             for o in det.b2c:
                 _zero_bn(o)
     _r12_surgery(model, arch)
+    _stack_o_surgery(model, arch)
     if hasattr(det, "bias_init"):
         det.bias_init()
     if arch.get("stride_mult"):
@@ -1129,6 +1291,12 @@ def make_trainer(arch: dict):
             if arch.get("init", "yolo26n.pt"):
                 inherit(model, arch, arch.get("init", "yolo26n.pt"))
                 svd_init(model, arch)
+                stack_o_fix(model, arch, arch.get("init", "yolo26n.pt"))
+            so = arch.get("stack_o") or {}
+            if so.get("aux"):
+                assert so.get("s4"), "stack_o.aux needs stack_o.s4"
+                model.__class__ = S4AuxLossModel
+                model.s4_aux = (float(so["aux"].get("w", 0.25)), float(so["aux"].get("max_px", 32)), so["s4"].get("at", 16))
             if arch.get("pair_loss"):
                 model.__class__, model.pair_loss = PairLossModel, arch["pair_loss"]
             if arch.get("density_loss"):

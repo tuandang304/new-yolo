@@ -1,4 +1,7 @@
-# Recipe v1 screen reference: Stack A + DySample, 30 epochs, seed 0, Colab T4 (batch 8; nbs 64 keeps the effective batch at 64).
+# Stack O (round 13): Stack A + DySample + O-1 stride-4 stem into L17 + O-2 top-down guided stride-4 feature
+# + O-3 training-only stride-4 centre-heatmap loss + O-4 extra full-width C3k in L4 and L17.
+# CPU count: 1.663 M inference params, 22.31 GFLOPs @1280 (control 1.538 M, 14.70 G); step-0 output == control (max diff 0).
+# 30 epochs, seed 0, recipe v1, Colab T4 (batch 8; nbs 64 keeps the effective batch at 64).
 # Recipe v1 = Ultralytics standard hyperparameters (as in YOLO26 / FBRT-YOLO) + R0 (optimizer forced to MuSGD,
 # lr0 0.01, momentum 0.9 = what `auto` picked in the old 100-ep runs; effective batch 64 through nbs) + A
 # (close_mosaic 0: mosaic stays on to the end; all 6 earlier 100-ep runs lost 0.3-0.5 val once mosaic closed).
@@ -8,7 +11,7 @@ tasks:
 - data
 - train
 train:
-  model: v1scr_ctrl
+  model: r13o
   epochs: 30
   imgsz: 1280
   seeds:
@@ -40,6 +43,10 @@ train:
       dim: 32
     r12_neck:
       dysample: 15
+    stack_o:
+      s4: {at: 16, src: 2, guided: true, mid: 32, ch: 64}
+      aux: {w: 0.25, max_px: 32}
+      p3_expand: [4, 17]
   extra:
     workers: 8
     cache: false
