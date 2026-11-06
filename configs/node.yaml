@@ -1,4 +1,4 @@
-# Stack N: Stack A + DySample + scene vector GAP(L11)->MLP(64) -> FiLM on cls input + per-class logit prior b(s) + aux log(1+count) loss (0.05).
+# Stack N ablation 3: N without the logit prior b(s).
 # Screen: 30 epochs, seed 0, batch 8 on one Kaggle T4 (R12 setup).
 smoke: false
 data_root: /tmp/visdrone/data
@@ -6,7 +6,7 @@ tasks:
 - data
 - train
 train:
-  model: r13n
+  model: r13n_nobias
   epochs: 30
   imgsz: 1280
   seeds:
@@ -42,7 +42,7 @@ train:
       scene:
         dim: 64
         film: true
-        bias: true
+        bias: false
         aux: true
     scene_loss: 0.05
   extra:
