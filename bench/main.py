@@ -36,6 +36,12 @@ def env_info() -> dict:
             info[pkg] = __import__(pkg).__version__
         except Exception as e:  # noqa: BLE001
             info[pkg] = f"n/a ({type(e).__name__})"
+    if not info["commit"]:  # some backends (Colab) do not pass ORX_COMMIT: identify the code by content instead
+        import hashlib
+        h = hashlib.sha256()
+        for f in sorted(p for d in ("bench", "configs", "models", "scripts") for p in Path(d).rglob("*") if p.is_file() and "__pycache__" not in p.parts):
+            h.update(str(f).encode()); h.update(f.read_bytes())
+        info["code_sha256"] = h.hexdigest()[:16]
     try:
         info["mem_GB"] = round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1e9, 1)
     except (ValueError, OSError):
