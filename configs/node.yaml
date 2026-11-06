@@ -1,13 +1,15 @@
-# Stack N ablation C: control, Stack A + DySample, no scene vector.
-# Screen: 30 epochs, seed 0, batch 8 on one Kaggle T4 (R12 setup).
+# Recipe v1 reference: Stack A + DySample (the Stack N control architecture), 100 epochs, seed 0, Colab L4.
+# Recipe v1 = Ultralytics standard hyperparameters (as in YOLO26 / FBRT-YOLO) + R0 (optimizer forced to MuSGD,
+# lr0 0.01, momentum 0.9 = what `auto` picked in the old 100-ep runs; effective batch 64 through nbs) + A
+# (close_mosaic 0: mosaic stays on to the end; all 6 earlier 100-ep runs lost 0.3-0.5 val once mosaic closed).
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r13n_ctrl
-  epochs: 30
+  model: v1ref
+  epochs: 100
   imgsz: 1280
   seeds:
   - 0
@@ -41,7 +43,11 @@ train:
   extra:
     workers: 8
     cache: false
-    batch: 8
+    batch: 16
+    optimizer: MuSGD
+    lr0: 0.01
+    momentum: 0.9
+    close_mosaic: 0
 eval:
   imgsz:
   - 1280
