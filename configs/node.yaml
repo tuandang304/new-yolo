@@ -1,45 +1,17 @@
-# Recipe v1 reference: Stack A + DySample (the Stack N control architecture), 100 epochs, seed 0, Colab L4.
-# Recipe v1 = Ultralytics standard hyperparameters (as in YOLO26 / FBRT-YOLO) + R0 (optimizer forced to MuSGD,
-# lr0 0.01, momentum 0.9 = what `auto` picked in the old 100-ep runs; effective batch 64 through nbs) + A
-# (close_mosaic 0: mosaic stays on to the end; all 6 earlier 100-ep runs lost 0.3-0.5 val once mosaic closed).
+# Stack-line baseline: YOLO26n fine-tuned from COCO at 1280x1280, 100 epochs, seed 0.
+# Recipe v1 (same as every Stack): Ultralytics defaults + optimizer forced to MuSGD lr0 0.01 momentum 0.9
+# (effective batch 64 through nbs) + close_mosaic 0 (mosaic kept to the end).
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: v1ref
+  model: yolo26n
   epochs: 100
   imgsz: 1280
   seeds:
   - 0
-  arch:
-    yaml: models/pra_a20_o2m.yaml
-    head_c3: 64
-    stride_mult: 64
-    lowrank:
-      layers:
-      - 3
-      - 5
-      - 8
-      ratio: 0.5
-    inherit:
-      ranges:
-      - - 0
-        - 6
-        - 0
-      - - 7
-        - 19
-        - 1
-      detect_levels:
-      - 0
-      - 1
-    head_fb: true
-    head_ctx:
-      src: 11
-      dim: 32
-    r12_neck:
-      dysample: 15
   extra:
     workers: 8
     cache: false
