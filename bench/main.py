@@ -88,7 +88,7 @@ def evaluate_ckpt(tag: str, family: str, ckpt: str, root: Path, imgszs: list[int
     if qual and test_dets_640 is not None:
         gt, ign, dets, qsplit = test_dets_640
         samples = D.figure_samples(root, split=qsplit) if len(gt["images"]) >= 64 else sorted(im["file_name"] for im in gt["images"])[:4]
-        res["qualitative"] = qualitative.dump(root, gt, ign, dets, samples, out / "qualitative", tag)["per_image"]
+        res["qualitative"] = qualitative.dump(root, gt, ign, dets, samples, out / "qualitative", tag, split=qsplit)["per_image"]
     res["efficiency"] = efficiency.params_flops(pred.torch_module(), efficiency_imgsz)
     if device.startswith("cuda") or device.isdigit():
         sample = str(next((root / "test" / "images").iterdir()))

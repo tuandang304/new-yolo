@@ -87,9 +87,10 @@ def _attach_log(y) -> None:
         mt = tr.metrics or {}
         lr = round(float(next(iter(tr.lr.values()))), 6) if getattr(tr, "lr", None) else None
         et = float(getattr(tr, "epoch_time", 0) or 0)
-        left = (tr.epochs - tr.epoch - 1) * et
+        left = max(0, tr.epochs - tr.epoch - 1) * et
+        final = tr.epoch + 1 > tr.epochs  # Ultralytics re-runs the callback after the final best.pt validation
         mem = torch.cuda.max_memory_reserved() / 1e9 if torch.cuda.is_available() else 0
-        print(f"[epoch {tr.epoch + 1}/{tr.epochs}] loss " + " ".join(f"{k}={v}" for k, v in loss.items())
+        print((f"[final-val best.pt]" if final else f"[epoch {tr.epoch + 1}/{tr.epochs}]") + " loss " + " ".join(f"{k}={v}" for k, v in loss.items())
               + f" | val map={100 * mt.get('metrics/mAP50-95(B)', 0):.2f} map50={100 * mt.get('metrics/mAP50(B)', 0):.2f}"
               + f" | lr={lr} | {et / 60:.1f}m eta={left / 3600:.2f}h mem={mem:.1f}G", flush=True)
 
