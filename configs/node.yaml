@@ -2,7 +2,7 @@
 # Same architecture as Stack N (scene vector -> FiLM + b(s) + aux count loss 0.05); only the recipe changes:
 # optimizer forced to MuSGD lr0 0.01 momentum 0.9 (was auto -> AdamW 0.000714) and close_mosaic 0.
 # Paired with the recipe-v1 control screen (node 7dd5a3be). Includes the fp16 scene-MLP cast fix.
-smoke: false
+smoke: true
 data_root: /tmp/visdrone/data
 tasks:
 - data
