@@ -5,7 +5,7 @@
 # hurt large objects through L17 -> P4; the twin keeps that path identical to the control.
 # CPU count: 1.608 M inference params, 19.53 GFLOPs @1280 (control 1.538 M, 14.70 G); step-0 output == control.
 # 30 epochs, seed 0, recipe v1 (MuSGD lr0 0.01, momentum 0.9, nbs 64, close_mosaic 0), Kaggle T4 batch 8.
-smoke: true
+smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
