@@ -1,15 +1,33 @@
-# fw-B: nano control for the fw line at 640. Stock YOLO26n from COCO, 30 epochs, seed 0, MuSGD lr0 0.01, batch 8 (nbs 64).
+# fw2 AsymRes: YOLO26n @640 with x2 shallow lift (L1-L4), CG downsample bridge to native L5-L10, DySample P2 + CSP-Attn, 30 ep
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: yolo26n
+  model: fw2_asymres
   epochs: 30
   imgsz: 640
   seeds:
   - 0
+  arch:
+    yaml: models/fw2_asymres.yaml
+    scale: n
+    init: yolo26n.pt
+    inherit:
+      offset: 0
+      max_src: 22
+      detect_levels:
+      - -1
+      - 0
+      - 1
+      - 2
+    lift:
+      layer: 1
+      scale: 2.0
+    fw640:
+      type: fw2_asymres
+      coco_head_c3: true
   extra:
     workers: 8
     cache: false

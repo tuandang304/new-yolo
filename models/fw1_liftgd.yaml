@@ -1,0 +1,43 @@
+# fw1 LiftGD (scales n/s/m): COCO YOLO26 L0-L22 + P2 top-down L23-L25 + FW1DualHubNeck at L26 (Low-GD s8 + High-GD PPA s32 + FGInject).
+nc: 10
+end2end: false
+reg_max: 1
+scale: n
+scales:
+  n: [0.50, 0.25, 1024]
+  s: [0.50, 0.50, 1024]
+  m: [0.50, 1.00, 512]
+backbone:
+- [-1, 1, Conv, [64, 3, 2]]
+- [-1, 1, Conv, [128, 3, 2]]
+- [-1, 2, C3k2, [256, false, 0.25]]
+- [-1, 1, Conv, [256, 3, 2]]
+- [-1, 2, C3k2, [512, false, 0.25]]
+- [-1, 1, Conv, [512, 3, 2]]
+- [-1, 2, C3k2, [512, true]]
+- [-1, 1, Conv, [1024, 3, 2]]
+- [-1, 2, C3k2, [1024, true]]
+- [-1, 1, SPPF, [1024, 5, 3, true]]
+- [-1, 2, C2PSA, [1024]]
+head:
+- [-1, 1, nn.Upsample, [null, 2, nearest]]
+- [[-1, 6], 1, Concat, [1]]
+- [-1, 2, C3k2, [512, true]]
+- [-1, 1, nn.Upsample, [null, 2, nearest]]
+- [[-1, 4], 1, Concat, [1]]
+- [-1, 2, C3k2, [256, true]]
+- [-1, 1, Conv, [256, 3, 2]]
+- [[-1, 13], 1, Concat, [1]]
+- [-1, 2, C3k2, [512, true]]
+- [-1, 1, Conv, [512, 3, 2]]
+- [[-1, 10], 1, Concat, [1]]
+- [-1, 2, C3k2, [1024, true]]
+- [16, 1, nn.Upsample, [null, 2, nearest]]
+- [[-1, 2], 1, Concat, [1]]
+- [-1, 2, C3k2, [128, false]]
+- [25, 1, Conv, [64, 1, 1]]
+- [25, 1, Conv, [128, 1, 1]]
+- [16, 1, Conv, [256, 1, 1]]
+- [19, 1, Conv, [512, 1, 1]]
+- [22, 1, Conv, [1024, 1, 1]]
+- [[27, 28, 29, 30], 1, Detect, [nc]]
