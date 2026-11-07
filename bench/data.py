@@ -7,6 +7,7 @@ Layout produced under <root> (readable by both Ultralytics and RF-DETR's YOLO re
   coco_{valid,test}.json               (COCO GT for the unified evaluator)
   ignore_{valid,test}.json             (per-image ignore boxes: VisDrone cat 0 'ignored regions' + cat 11 'others')
   manifest.json                        (zip SHA256, per-split counts, file-list SHA256)
+masked_train() adds <root>_masked for runs that set train.mask_ignore.
 
 Annotation rows are x,y,w,h,score,category,truncation,occlusion. A box is kept as GT when
 score == 1 and category in 1..10; category 0 and 11 become ignore regions.
@@ -22,7 +23,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 NAMES = ["pedestrian", "people", "bicycle", "car", "van", "truck", "tricycle", "awning-tricycle", "bus", "motor"]
 ASSETS = "https://github.com/ultralytics/assets/releases/download/v0.0.0"
@@ -116,6 +117,62 @@ def prepare(root: str | Path, cache: str | Path | None = None) -> Path:
         f"nc: {len(NAMES)}\nnames:\n" + "".join(f"  {i}: {n}\n" for i, n in enumerate(NAMES)))
     (root / "manifest.json").write_text(json.dumps(manifest, indent=2))
     return root
+
+
+def masked_train(root: Path, fill: int = 114) -> Path:
+    """Copy of the dataset whose TRAIN images have VisDrone ignore regions painted out and whose train labels drop
+    boxes >50% inside one, mirroring the evaluator. Val/test stay as they are; `root` is left untouched."""
+    out = root.parent / f"{root.name}_masked"
+    if (out / "data.yaml").exists():
+        return out
+    raw = root.parent / "visdrone_raw" / SPLITS["train"]
+    (out / "train" / "images").mkdir(parents=True, exist_ok=True)
+    (out / "train" / "labels").mkdir(parents=True, exist_ok=True)
+    os.symlink((root / "valid").resolve(), out / "valid")
+    if (root / "test").exists():
+        os.symlink((root / "test").resolve(), out / "test")
+    frac, n_drop, n_box = [], 0, 0
+    for link in sorted((root / "train" / "images").iterdir()):
+        lab = (root / "train" / "labels" / link.name).with_suffix(".txt")
+        lines = lab.read_text().splitlines()
+        im = Image.open(link).convert("RGB")
+        w, h = im.size
+        ign = []
+        ann = raw / "annotations" / f"{link.stem}.txt"
+        for row in ann.read_text().strip().splitlines():
+            x, y, bw, bh, score, cat = [int(v) for v in row.strip().rstrip(",").split(",")[:6]]
+            x0, y0, x1, y1 = max(0, x), max(0, y), min(w, x + bw), min(h, y + bh)  # same clipping as _convert_split
+            if (cat in (0, 11) or score == 0) and x1 > x0 and y1 > y0:
+                ign.append([x0, y0, x1 - x0, y1 - y0])
+        keep = []
+        for ln in lines:
+            _, cx, cy, bw, bh = ln.split()
+            bw, bh = float(bw) * w, float(bh) * h
+            x0, y0 = float(cx) * w - bw / 2, float(cy) * h - bh / 2
+            cov = max((max(0., min(x0 + bw, a + c) - max(x0, a)) * max(0., min(y0 + bh, b + d) - max(y0, b))
+                       for a, b, c, d in ign), default=0.)
+            if cov <= 0.5 * bw * bh:
+                keep.append(ln)
+        n_drop += len(lines) - len(keep)
+        n_box += len(lines)
+        if ign:
+            draw = ImageDraw.Draw(im)
+            mask = Image.new("L", im.size, 0)
+            md = ImageDraw.Draw(mask)
+            for a, b, c, d in ign:
+                draw.rectangle([a, b, a + c - 1, b + d - 1], fill=(fill, fill, fill))
+                md.rectangle([a, b, a + c - 1, b + d - 1], fill=1)
+            frac.append(sum(mask.getdata()) / (w * h))
+            im.save(out / "train" / "images" / link.name, quality=95)
+        else:
+            frac.append(0.)
+            os.symlink(link.resolve(), out / "train" / "images" / link.name)
+        (out / "train" / "labels" / lab.name).write_text("\n".join(keep) + ("\n" if keep else ""))
+    (out / "data.yaml").write_text((root / "data.yaml").read_text().replace(f"path: {root.resolve()}", f"path: {out.resolve()}"))
+    shutil.copy(root / "manifest.json", out / "manifest.json")
+    print(f"[data] masked train: {len(frac)} images, mean masked area {100 * sum(frac) / len(frac):.2f}%, "
+          f"images with a mask {sum(f > 0 for f in frac)}, labels dropped {n_drop}/{n_box}", flush=True)
+    return out
 
 
 def make_subset(root: Path, out: Path, n: dict[str, int], seed: int = 0) -> Path:

@@ -1,6 +1,24 @@
-# Fine-tune yolo26n from its official COCO checkpoint; evaluate with the unified evaluator.
+# fw-B: nano control for the fw line at 640. Stock YOLO26n from COCO, 30 epochs, seed 0, MuSGD lr0 0.01, batch 8 (nbs 64).
 smoke: false
 data_root: /tmp/visdrone/data
-tasks: [data, train]
-train: {model: yolo26n, epochs: 100, imgsz: 640, seeds: [0]}
-eval: {imgsz: [640, 1280], splits: [valid, test]}
+tasks:
+- data
+- train
+train:
+  model: yolo26n
+  epochs: 30
+  imgsz: 640
+  seeds:
+  - 0
+  extra:
+    workers: 8
+    cache: false
+    batch: 8
+    optimizer: MuSGD
+    lr0: 0.01
+    warmup_bias_lr: 0.0
+eval:
+  imgsz:
+  - 640
+  splits:
+  - valid

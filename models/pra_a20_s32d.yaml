@@ -1,0 +1,123 @@
+# PRA-a20 + a light third Detect level at stride 32 (L21-L26): pooled backbone L7 + context stage L11 up x2.
+# PRA-a20: PRA-a with the P5 context stage (old L7-L10) run at stride 64 via an inserted 2x avg-pool (L7)
+# and a x4 upsample back to stride 16; detection on P3/P4 as PRA-a. COCO tensors: old L0-6 -> L0-6, old L7-19 -> L8-20.
+nc: 10
+end2end: true
+reg_max: 1
+scale: n
+scales:
+  n: [0.5, 0.25, 1024]
+backbone:
+- - -1
+  - 1
+  - Conv
+  - [64, 3, 2]
+- - -1
+  - 1
+  - Conv
+  - [128, 3, 2]
+- - -1
+  - 2
+  - C3k2
+  - [256, false, 0.25]
+- - -1
+  - 1
+  - Conv
+  - [256, 3, 2]
+- - -1
+  - 2
+  - C3k2
+  - [512, false, 0.25]
+- - -1
+  - 1
+  - Conv
+  - [512, 3, 2]
+- - -1
+  - 2
+  - C3k2
+  - [512, true]
+- - -1
+  - 1
+  - nn.AvgPool2d
+  - [2, 2]
+- - -1
+  - 1
+  - Conv
+  - [1024, 3, 2]
+- - -1
+  - 2
+  - C3k2
+  - [1024, true]
+- - -1
+  - 1
+  - SPPF
+  - [1024, 5, 3, true]
+- - -1
+  - 2
+  - C2PSA
+  - [1024]
+head:
+- - -1
+  - 1
+  - nn.Upsample
+  - [null, 4, nearest]
+- - [-1, 6]
+  - 1
+  - Concat
+  - [1]
+- - -1
+  - 2
+  - C3k2
+  - [512, true]
+- - -1
+  - 1
+  - nn.Upsample
+  - [null, 2, nearest]
+- - [-1, 4]
+  - 1
+  - Concat
+  - [1]
+- - -1
+  - 2
+  - C3k2
+  - [256, true]
+- - -1
+  - 1
+  - Conv
+  - [256, 3, 2]
+- - [-1, 14]
+  - 1
+  - Concat
+  - [1]
+- - -1
+  - 2
+  - C3k2
+  - [512, true]
+- - 7
+  - 1
+  - Conv
+  - [256, 1, 1]
+- - 11
+  - 1
+  - Conv
+  - [256, 1, 1]
+- - -1
+  - 1
+  - nn.Upsample
+  - [null, 2, nearest]
+- - [21, 23]
+  - 1
+  - Concat
+  - [1]
+- - -1
+  - 1
+  - DWConv
+  - [512, 3, 1]
+- - -1
+  - 1
+  - Conv
+  - [256, 1, 1]
+- - [17, 20, 26]
+  - 1
+  - Detect
+  - [nc]
