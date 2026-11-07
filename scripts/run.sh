@@ -11,9 +11,9 @@ if ! "$PY" -m pip --version >/dev/null 2>&1; then
   uv venv --python 3.12 --seed .venv
   export PATH="$PWD/.venv/bin:$PATH"
   PY="$PWD/.venv/bin/python"
-  uv pip install torch torchvision -r requirements-run.txt
+  uv pip install -q torch torchvision -r requirements-run.txt
 fi
-export PYTHONUNBUFFERED=1 MPLBACKEND=Agg YOLO_OFFLINE=0
+export PYTHONUNBUFFERED=1 MPLBACKEND=Agg YOLO_OFFLINE=0 GITHUB_ACTIONS=1
 "$PY" -m pip install -q --disable-pip-version-check -r requirements-run.txt
 export ORX_OUTPUT_DIR="${ORX_OUTPUT_DIR:-$PWD/outputs}"
 mkdir -p "$ORX_OUTPUT_DIR"
