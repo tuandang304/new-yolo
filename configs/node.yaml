@@ -1,4 +1,4 @@
-# Access T4 measure (val): headline AP with size buckets + FP16 latency at 1280, one T4 session. No training.
+# Access T4 measure (val): headline AP with size buckets + FP16 latency at 1280 for Access-1 s2, YOLO26n@1280 s0, AB6, AB7 (plus s0/s1 latency anchors). No training.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
@@ -13,8 +13,7 @@ measure:
   models:
   - {tag: access1_s0, family: ultralytics, ckpt: weights/access1_s0.pt, imgsz: 1280, latency: true}
   - {tag: access1_s1, family: ultralytics, ckpt: weights/access1_s1.pt, imgsz: 1280, latency: true}
-  - {tag: ab2_fullrank, family: ultralytics, ckpt: weights/ab2.pt, imgsz: 1280, latency: true}
-  - {tag: ab3_c3k2, family: ultralytics, ckpt: weights/ab3.pt, imgsz: 1280, latency: true}
-  - {tag: ab4_softmax, family: ultralytics, ckpt: weights/ab4.pt, imgsz: 1280, latency: true}
-  - {tag: ab5_norep, family: ultralytics, ckpt: weights/ab5.pt, imgsz: 1280, latency: true}
-  - {tag: yolo26n_arch, family: ultralytics, ckpt: weights/yolo26n_arch.pt, imgsz: 1280, latency: true}
+  - {tag: access1_s2, family: ultralytics, ckpt: weights/access1_s2.pt, imgsz: 1280, latency: true}
+  - {tag: yolo26n_1280_s0, family: ultralytics, ckpt: weights/yolo26n_1280_s0.pt, imgsz: 1280, latency: true}
+  - {tag: ab6_plainconv, family: ultralytics, ckpt: weights/ab6.pt, imgsz: 1280, latency: true}
+  - {tag: ab7_p5, family: ultralytics, ckpt: weights/ab7.pt, imgsz: 1280, latency: true}
