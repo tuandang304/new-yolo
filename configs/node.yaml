@@ -1,15 +1,49 @@
-# fw-B: nano control for the fw line at 640. Stock YOLO26n from COCO, 30 epochs, seed 0, MuSGD lr0 0.01, batch 8 (nbs 64).
+# fw1 LiftGD: YOLO26n-P2 @640 + lift x1.25 + dual-hub gather-inject neck (Low-GD s8 + High-GD PPA s32), 30 ep
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: yolo26n
+  model: fw1_liftgd
   epochs: 30
   imgsz: 640
   seeds:
   - 0
+  arch:
+    yaml: models/fw1_liftgd.yaml
+    scale: n
+    init: yolo26n.pt
+    inherit:
+      offset: 0
+      max_src: 22
+      detect_levels:
+      - -1
+      - 0
+      - 1
+      - 2
+    lift:
+      layer: 1
+      scale: 1.25
+    detect_bu:
+      pairs:
+      - - 0
+        - 1
+    fw640:
+      type: fw1_liftgd
+      at: 26
+      src_pan:
+      - 25
+      - 16
+      - 19
+      - 22
+      src_bk:
+      - 2
+      - 4
+      - 6
+      - 10
+      nhub: 2
+      coco_head_c3: true
   extra:
     workers: 8
     cache: false
