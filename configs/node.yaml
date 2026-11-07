@@ -7,7 +7,7 @@ tasks:
 - data
 - train
 train:
-  model: yolo26n_s1
+  model: yolo26n
   epochs: 100
   imgsz: 1280
   seeds:
