@@ -1,4 +1,3 @@
-# Access-1 ablation AB3 at 100 epochs (paper-grade): original C3k2 at L8. Same optimizer as the Access-1 100-epoch confirm.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
@@ -9,7 +8,7 @@ train:
   epochs: 100
   imgsz: 1280
   seeds:
-  - 0
+  - 1
   arch:
     yaml: models/pra_a_o2m.yaml
     head_c3: 64
@@ -29,16 +28,20 @@ train:
       - 1
     access:
     - op: lowrank_conv
-      layers: [7]
+      layers:
+      - 7
       rank: 64
     - op: lowrank_pw
-      layers: [9]
+      layers:
+      - 9
       attr: cv2
       rank: 128
     - op: linattn_psa
-      layers: [10]
+      layers:
+      - 10
     - op: repconv
-      layers: [13]
+      layers:
+      - 13
   extra:
     workers: 8
     cache: false
