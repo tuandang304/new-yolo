@@ -83,6 +83,14 @@ class DetectBU(_Detect):
         return super().forward(x)
 
 
+def _p3_split(det, x: list) -> list:
+    """Stack P twin P3 (round 14): the P3 input is cat(plain, detail); the head reads only the detail half."""
+    k = getattr(det, "p3_split", 0)
+    if k:
+        x[0] = x[0][:, k:]
+    return x
+
+
 class R11Detect(_Detect):
     """Detect with optional round-11 additions, each a zero contribution at step 0:
     ctx  - stride-64 context (extra last input) projected once, upsampled and added to every classification input;
@@ -90,7 +98,7 @@ class R11Detect(_Detect):
     b2c  - box -> class edge: classification input += b2c(first box-branch conv output)."""
 
     def forward(self, x):
-        x = list(x)
+        x = _p3_split(self, list(x))
         self._ctxf = self.ctx(x.pop()) if getattr(self, "ctx", None) is not None else None
         if getattr(self, "fb", None) is not None:
             f = F.interpolate(self.fb(x[1]), size=x[0].shape[2:], mode="nearest")
@@ -547,7 +555,7 @@ class R12Detect(R11Detect):
     """R11Detect plus the optional round-12 head modules (see `_r12_head`). Every addition is zero at step 0."""
 
     def forward(self, x):
-        x = list(x)
+        x = _p3_split(self, list(x))
         raw = x.pop() if getattr(self, "ctx", None) is not None else None
         self._ctxraw = raw
         ctxf = self.ctx(raw) if raw is not None else None
@@ -898,6 +906,30 @@ class S4Concat(nn.Module):
         return torch.cat([top, b8, self.stem(s4)], 1)
 
 
+class TwinC3k2(nn.Module):
+    """Stack P (round 14) twin P3 block: `plain` (= the base P3 C3k2) sees only the first c0 input channels and feeds the
+    bottom-up path to P4; `det` (a COCO-initialised copy, cv1 widened for the stride-4 stem) sees everything and feeds
+    only the P3 head. Output cat(plain, det); TakeFirst at the next layer and Detect.p3_split pick their halves."""
+
+    def __init__(self, plain: nn.Module, det: nn.Module, c0: int):
+        super().__init__()
+        self.plain, self.det, self.c0 = plain, det, c0
+
+    def forward(self, x):
+        return torch.cat([self.plain(x[:, :self.c0]), self.det(x)], 1)
+
+
+class TakeFirst(nn.Module):
+    """Runs `m` on the first `c` channels of its input (the plain half of TwinC3k2)."""
+
+    def __init__(self, m: nn.Module, c: int):
+        super().__init__()
+        self.m, self.c = m, c
+
+    def forward(self, x):
+        return self.m(x[:, :self.c])
+
+
 def _widen_in(conv, extra: int) -> int:
     """Ultralytics Conv: add `extra` zero-weight input channels at the end. Returns the old input width."""
     old = conv.conv
@@ -917,6 +949,9 @@ def _stack_o_surgery(model, arch: dict) -> None:
     from ultralytics.nn.modules.block import C3k
     seq, det = model.model, model.model[-1]
     model._o_widen = []  # (layer, attr, old_in): slices whose COCO part is re-copied after inherit()
+    import copy as _cp
+    twin_at = so.get("twin_p3")  # layer index of the P3 C3k2 (17) or None
+    plain = _cp.deepcopy(seq[twin_at]) if twin_at is not None else None
     if so.get("s4"):
         s = so["s4"]
         at, src = s.get("at", 16), s.get("src", 2)
@@ -932,8 +967,20 @@ def _stack_o_surgery(model, arch: dict) -> None:
         seq[at] = new
         model.save = sorted(set(model.save) | {src})
         nxt = seq[at + 1]
-        model._o_widen.append((at + 1, "cv1", _widen_in(nxt.cv1, ch)))
+        model._o_widen.append((at + 1, "det.cv1" if twin_at == at + 1 else "cv1", _widen_in(nxt.cv1, ch)))
         nxt.np = sum(p.numel() for p in nxt.parameters())
+    if twin_at is not None:
+        det_m = seq[twin_at]
+        c0 = plain.cv1.conv.in_channels
+        cout = plain.cv2.conv.out_channels
+        tw = TwinC3k2(plain, det_m, c0)
+        _set_layer(seq, twin_at, tw, "bench.pra.TwinC3k2")
+        nb = seq[twin_at + 1]
+        assert nb.f == -1, nb.f
+        _set_layer(seq, twin_at + 1, TakeFirst(nb, cout), "bench.pra.TakeFirst")
+        assert det.f[0] == twin_at, det.f
+        det.p3_split = cout
+        model._o_twin = twin_at
     for i in so.get("p3_expand", []):
         m = seq[i]
         assert type(m).__name__ == "C3k2", (i, type(m))
@@ -943,16 +990,32 @@ def _stack_o_surgery(model, arch: dict) -> None:
 
 
 def stack_o_fix(model, arch: dict, src: str = "yolo26n.pt") -> None:
-    """After inherit(): widened convs missed the shape match; copy their COCO slice and keep the new slice at zero."""
-    if not getattr(model, "_o_widen", None):
+    """After inherit(): widened convs missed the shape match; copy their COCO slice and keep the new slice at zero.
+    Twin P3 (Stack P): both halves of TwinC3k2 and the wrapped next layer get the COCO tensors of their source layers."""
+    if not getattr(model, "_o_widen", None) and getattr(model, "_o_twin", None) is None:
         return
+    import functools
     from ultralytics.nn.tasks import load_checkpoint
     w, _ = load_checkpoint(src)
     sd_src = w.float().state_dict()
     ranges = (arch.get("inherit") or {}).get("ranges") or [[0, 10 ** 6, 0]]
-    for i, attr, old_in in model._o_widen:
-        si = next(i - o for lo, hi, o in ranges if lo <= i - o <= hi)
-        conv = getattr(model.model[i], attr)
+    src_of = lambda i: next(i - o for lo, hi, o in ranges if lo <= i - o <= hi)
+    t = getattr(model, "_o_twin", None)
+    if t is not None:
+        n = 0
+        for j, parts in ((t, ("plain", "det")), (t + 1, ("m",))):
+            sj = src_of(j)
+            for part in parts:
+                for k, v in getattr(model.model[j], part).state_dict().items():
+                    sv = sd_src[f"model.{sj}.{k}"]
+                    if v.shape == sv.shape:
+                        v.copy_(sv)
+                        n += 1
+        print(f"[pra] stack_p: twin P3 layer {t} (plain + det) and wrapped layer {t + 1}: {n} COCO tensors", flush=True)
+    for i, attr, old_in in getattr(model, "_o_widen", []):
+        si = src_of(i)
+        conv = functools.reduce(getattr, attr.split("."), model.model[i])
+        attr = attr.split(".")[-1]
         with torch.no_grad():
             conv.conv.weight.zero_()
             conv.conv.weight[:, :old_in] = sd_src[f"model.{si}.{attr}.conv.weight"]

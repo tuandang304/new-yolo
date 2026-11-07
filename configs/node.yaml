@@ -1,17 +1,17 @@
-# Stack O (round 13): Stack A + DySample + O-1 stride-4 stem into L17 + O-2 top-down guided stride-4 feature
-# + O-3 training-only stride-4 centre-heatmap loss + O-4 extra full-width C3k in L4 and L17.
-# CPU count: 1.663 M inference params, 22.31 GFLOPs @1280 (control 1.538 M, 14.70 G); step-0 output == control (max diff 0).
-# 30 epochs, seed 0, recipe v1, Colab T4 (batch 8; nbs 64 keeps the effective batch at 64).
-# Recipe v1 = Ultralytics standard hyperparameters (as in YOLO26 / FBRT-YOLO) + R0 (optimizer forced to MuSGD,
-# lr0 0.01, momentum 0.9 = what `auto` picked in the old 100-ep runs; effective batch 64 through nbs) + A
-# (close_mosaic 0: mosaic stays on to the end; all 6 earlier 100-ep runs lost 0.3-0.5 val once mosaic closed).
-smoke: false
+# Stack P (round 14): Stack A + DySample + O-1 stride-4 stem + O-2 top-down guided stride-4 feature, injected into a
+# TWIN P3 block: L17 = TwinC3k2(plain = COCO L17 on the base input -> L18 -> P4, det = COCO copy with the stride-4 stem
+# (zero-init cv1 slice) -> P3 head only). O-3 (aux loss) and O-4 (P3 expansion) dropped by the Stack O ablation.
+# Why: in the trained control and Stack O, 100% of large-object true positives come from P4, so stride-4 detail can only
+# hurt large objects through L17 -> P4; the twin keeps that path identical to the control.
+# CPU count: 1.608 M inference params, 19.53 GFLOPs @1280 (control 1.538 M, 14.70 G); step-0 output == control.
+# 30 epochs, seed 0, recipe v1 (MuSGD lr0 0.01, momentum 0.9, nbs 64, close_mosaic 0), Kaggle T4 batch 8.
+smoke: true
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r13o
+  model: r14p
   epochs: 30
   imgsz: 1280
   seeds:
@@ -45,8 +45,7 @@ train:
       dysample: 15
     stack_o:
       s4: {at: 16, src: 2, guided: true, mid: 32, ch: 64}
-      aux: {w: 0.25, max_px: 32}
-      p3_expand: [4, 17]
+      twin_p3: 17
   extra:
     workers: 8
     cache: false
