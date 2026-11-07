@@ -4,6 +4,15 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 [ -d /opt/conda/bin ] && export PATH="/opt/conda/bin:$PATH"
 PY="$(command -v python || command -v python3)"
+if ! "$PY" -m pip --version >/dev/null 2>&1; then
+  sudo -n apt-get update -qq && sudo -n apt-get install -y -qq libxcb1 libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 || true
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  export PATH="$HOME/.local/bin:$PATH"
+  uv venv --python 3.12 --seed .venv
+  export PATH="$PWD/.venv/bin:$PATH"
+  PY="$PWD/.venv/bin/python"
+  uv pip install torch torchvision -r requirements-run.txt
+fi
 export PYTHONUNBUFFERED=1 MPLBACKEND=Agg YOLO_OFFLINE=0
 "$PY" -m pip install -q --disable-pip-version-check -r requirements-run.txt
 export ORX_OUTPUT_DIR="${ORX_OUTPUT_DIR:-$PWD/outputs}"
