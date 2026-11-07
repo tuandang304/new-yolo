@@ -433,6 +433,9 @@ def surgery(model, arch: dict) -> None:
         det.ns, det.hier_mode = 4, hc.get("mode", "product")
         det.register_buffer("sup_index", torch.tensor(hc.get("groups", VISDRONE_SUPER)), persistent=False)
         det.gamma = nn.Parameter(torch.zeros(det.nc))  # used by mode 'sum' only
+    if arch.get("fw640"):
+        from .fw640 import fw640_surgery
+        fw640_surgery(model, arch)
     if hasattr(det, "bias_init"):
         det.bias_init()
     if arch.get("hier"):
@@ -547,8 +550,11 @@ class PairLossModel(_DetectionModel):
 
 
 def build(arch: dict, nc: int = 10, verbose: bool = False):
-    from ultralytics.nn.tasks import DetectionModel
-    m = DetectionModel(str(ROOT / arch["yaml"]), nc=nc, verbose=verbose)
+    from ultralytics.nn.tasks import DetectionModel, yaml_model_load
+    d = yaml_model_load(str(ROOT / arch["yaml"]))
+    if arch.get("scale"):
+        d["scale"] = arch["scale"]
+    m = DetectionModel(d, nc=nc, verbose=verbose)
     surgery(m, arch)
     return m
 
@@ -571,6 +577,11 @@ def make_trainer(arch: dict):
                 model.__class__, model.pair_loss = PairLossModel, arch["pair_loss"]
             if arch.get("hier"):
                 model.__class__, model.hier_weight = HierLossModel, float(arch["hier"].get("weight", 0.35))
+            if (arch.get("fw640") or {}).get("nwd_loss"):
+                from .fw640 import NWDQueryLossModel
+                model.__class__ = NWDQueryLossModel
+                model.nwd_c = float(arch["fw640"].get("nwd_c", 12.0))
+                model.nwd_w = float(arch["fw640"].get("nwd_w", 0.5))
             n_par = sum(p.numel() for p in model.parameters())
             print(f"[pra] arch={arch} params={n_par / 1e6:.3f}M", flush=True)
             return model

@@ -1,15 +1,42 @@
-# fw-B: nano control for the fw line at 640. Stock YOLO26n from COCO, 30 epochs, seed 0, MuSGD lr0 0.01, batch 8 (nbs 64).
+# fw3 DenseQuery: YOLO26n-P2 @640 + lift x1.25 + Gaussian query selection, 2-layer interaction decoder & NWD assigner/loss, 30 ep
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: yolo26n
+  model: fw3_densequery
   epochs: 30
   imgsz: 640
   seeds:
   - 0
+  arch:
+    yaml: models/fw3_densequery.yaml
+    scale: n
+    init: yolo26n.pt
+    inherit:
+      offset: 0
+      max_src: 22
+      detect_levels:
+      - -1
+      - 0
+      - 1
+      - 2
+    lift:
+      layer: 1
+      scale: 1.25
+    detect_bu:
+      pairs:
+      - - 0
+        - 1
+    fw640:
+      type: fw3_densequery
+      num_queries: 300
+      n_layers: 2
+      coco_head_c3: true
+      nwd_loss: true
+      nwd_c: 12.0
+      nwd_w: 0.5
   extra:
     workers: 8
     cache: false

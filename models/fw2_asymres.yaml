@@ -1,0 +1,38 @@
+# fw2 AsymRes (scales n/s/m): COCO YOLO26 L0-L22 + P2 branch L23-L25; surgery lifts L1-L4 by x2, bridges L4->L5/L15 via CGDownBridge, and builds 160x160 P2 via DySampleUp + AsymP2Fuse + CSPAttn.
+nc: 10
+end2end: false
+reg_max: 1
+scale: n
+scales:
+  n: [0.50, 0.25, 1024]
+  s: [0.50, 0.50, 1024]
+  m: [0.50, 1.00, 512]
+backbone:
+- [-1, 1, Conv, [64, 3, 2]]
+- [-1, 1, Conv, [128, 3, 2]]
+- [-1, 2, C3k2, [256, false, 0.25]]
+- [-1, 1, Conv, [256, 3, 2]]
+- [-1, 2, C3k2, [512, false, 0.25]]
+- [-1, 1, Conv, [512, 3, 2]]
+- [-1, 2, C3k2, [512, true]]
+- [-1, 1, Conv, [1024, 3, 2]]
+- [-1, 2, C3k2, [1024, true]]
+- [-1, 1, SPPF, [1024, 5, 3, true]]
+- [-1, 2, C2PSA, [1024]]
+head:
+- [-1, 1, nn.Upsample, [null, 2, nearest]]
+- [[-1, 6], 1, Concat, [1]]
+- [-1, 2, C3k2, [512, true]]
+- [-1, 1, nn.Upsample, [null, 2, nearest]]
+- [[-1, 4], 1, Concat, [1]]
+- [-1, 2, C3k2, [256, true]]
+- [-1, 1, Conv, [256, 3, 2]]
+- [[-1, 13], 1, Concat, [1]]
+- [-1, 2, C3k2, [512, true]]
+- [-1, 1, Conv, [512, 3, 2]]
+- [[-1, 10], 1, Concat, [1]]
+- [-1, 2, C3k2, [1024, true]]
+- [16, 1, nn.Upsample, [null, 2, nearest]]
+- [[-1, 2], 1, Concat, [1]]
+- [-1, 2, C3k2, [128, false]]
+- [[25, 16, 19, 22], 1, Detect, [nc]]
