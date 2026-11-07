@@ -1,4 +1,3 @@
-# Access-1 ablation AB4 at 100 epochs (paper-grade): softmax C2PSA. Same optimizer as the Access-1 100-epoch confirm.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
@@ -9,7 +8,7 @@ train:
   epochs: 100
   imgsz: 1280
   seeds:
-  - 0
+  - 2
   arch:
     yaml: models/pra_a_o2m.yaml
     head_c3: 64
@@ -29,26 +28,31 @@ train:
       - 1
     access:
     - op: lowrank_conv
-      layers: [7]
+      layers:
+      - 7
       rank: 64
     - op: lowrank_pw
-      layers: [9]
+      layers:
+      - 9
       attr: cv2
       rank: 128
     - op: hybrid_c3k
-      layers: [8]
+      layers:
+      - 8
       idx: 0
       replace: true
       ratio: 2
       d: 32
     - op: hybrid_c3k
-      layers: [8]
+      layers:
+      - 8
       idx: 1
       replace: true
       ratio: 2
       d: 32
     - op: repconv
-      layers: [13]
+      layers:
+      - 13
   extra:
     workers: 8
     cache: false
