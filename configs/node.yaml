@@ -1,16 +1,16 @@
-# O-lite ablation AB6 (100 epochs): replace SVD low-rank downsampling (LR-Down) at L3, L5, L8 with full-rank COCO 3x3 s=2 convs.
-# 1.771 M params, 19.57 GFLOPs @1280. 100 epochs, seed 0, recipe v1, Kaggle T4 batch 8.
+# O-lite ablation AB6 (Full-Rank, 100 epochs, seed 1): replace SVD low-rank downsampling (LR-Down) at L3, L5, L8 with full-rank COCO 3x3 s=2 convs.
+# 1.771 M params, 19.57 GFLOPs @1280. 100 epochs, seed 1, recipe v1, Kaggle T4 batch 8.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: olite_ab6_nolr
+  model: olite_ab6_nolr_s1
   epochs: 100
   imgsz: 1280
   seeds:
-  - 0
+  - 1
   arch:
     yaml: models/pra_a20_o2m.yaml
     head_c3: 64
