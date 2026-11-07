@@ -1,19 +1,14 @@
-# ABLATION r14p_notwin: see stack-models/proposals/r14/proposals.md
-# Stack P (round 14): Stack A + DySample + O-1 stride-4 stem + O-2 top-down guided stride-4 feature, injected into a
-# TWIN P3 block: L17 = TwinC3k2(plain = COCO L17 on the base input -> L18 -> P4, det = COCO copy with the stride-4 stem
-# (zero-init cv1 slice) -> P3 head only). O-3 (aux loss) and O-4 (P3 expansion) dropped by the Stack O ablation.
-# Why: in the trained control and Stack O, 100% of large-object true positives come from P4, so stride-4 detail can only
-# hurt large objects through L17 -> P4; the twin keeps that path identical to the control.
-# CPU count: 1.608 M inference params, 19.53 GFLOPs @1280 (control 1.538 M, 14.70 G); step-0 output == control.
-# 30 epochs, seed 0, recipe v1 (MuSGD lr0 0.01, momentum 0.9, nbs 64, close_mosaic 0), Kaggle T4 batch 8.
+# O-lite (100-epoch confirmation): Stack A + DySample + O-1 stride-4 stem + O-2 top-down guided stride-4 feature
+# into the shared P3 C3k2 (L17). 1.574 M params, 17.80 GFLOPs @1280.
+# 100 epochs, seed 0, recipe v1 (MuSGD lr0 0.01, momentum 0.9, nbs 64, close_mosaic 0), Kaggle T4 batch 8.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: r14p_notwin
-  epochs: 30
+  model: olite_100
+  epochs: 100
   imgsz: 1280
   seeds:
   - 0
