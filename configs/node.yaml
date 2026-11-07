@@ -13,6 +13,7 @@ train:
   arch:
     yaml: models/fw3_densequery.yaml
     scale: n
+    stride_mult: 128
     init: yolo26n.pt
     inherit:
       offset: 0

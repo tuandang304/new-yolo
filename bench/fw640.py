@@ -635,6 +635,7 @@ def fw640_surgery(model: nn.Module, arch: dict) -> None:
         model.save = sorted(set(model.save) | set(src_all) | {at})
         if fw.get("coco_head_c3", True):
             apply_coco_head_c3(det)
+        model.stride = torch.tensor([float(fw.get("stride_mult", 128.0))])
 
     elif kind == "fw2_asymres":
         # 1) L1 gets LiftConv x2.0 (handled via arch['lift'] or here)
@@ -684,6 +685,7 @@ def fw640_surgery(model: nn.Module, arch: dict) -> None:
         det.__class__ = DenseQueryDetect
         det.setup_query_head(num_queries=fw.get("num_queries", 300), n_layers=fw.get("n_layers", 2))
         det.np = sum(p.numel() for p in det.parameters())
+        model.stride = torch.tensor([float(fw.get("stride_mult", 128.0))])
 
     else:
         raise ValueError(f"Unknown fw640 type: {kind}")
