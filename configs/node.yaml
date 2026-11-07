@@ -1,4 +1,4 @@
-# Stack-line baseline: YOLO26n fine-tuned from COCO at 1280x1280, 100 epochs, seed 0.
+# Stack-line baseline: YOLO26n fine-tuned from COCO at 1280x1280, 100 epochs, seed 1, Kaggle T4 batch 8.
 # Recipe v1 (same as every Stack): Ultralytics defaults + optimizer forced to MuSGD lr0 0.01 momentum 0.9
 # (effective batch 64 through nbs) + close_mosaic 0 (mosaic kept to the end).
 smoke: false
@@ -7,15 +7,15 @@ tasks:
 - data
 - train
 train:
-  model: yolo26n
+  model: yolo26n_s1
   epochs: 100
   imgsz: 1280
   seeds:
-  - 0
+  - 1
   extra:
     workers: 8
     cache: false
-    batch: 16
+    batch: 8
     optimizer: MuSGD
     lr0: 0.01
     momentum: 0.9
