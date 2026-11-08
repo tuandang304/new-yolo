@@ -23,14 +23,14 @@ train:
       ratio: 0.5
     inherit:
       ranges:
-      - - 1
+      - - 0
         - 6
-        - 1
+        - 0
       - - 7
         - 19
         - 1
       detect_levels:
-      - 1
+      - 0
       - 1
     head_fb: true
     r12_neck:
