@@ -10,7 +10,7 @@ train:
   epochs: 100
   imgsz: 1280
   seeds:
-  - 0
+  - 1
   arch:
     yaml: models/pra_a20_o2m.yaml
     head_c3: 64
@@ -23,14 +23,14 @@ train:
       ratio: 0.5
     inherit:
       ranges:
-      - - 0
+      - - 1
         - 6
-        - 0
+        - 1
       - - 7
         - 19
         - 1
       detect_levels:
-      - 0
+      - 1
       - 1
     head_fb: false
     head_ctx:
