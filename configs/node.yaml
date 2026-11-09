@@ -1,56 +1,19 @@
-# O-lite (100-epoch confirmation): Stack A + DySample + O-1 stride-4 stem + O-2 top-down guided stride-4 feature
-# into the shared P3 C3k2 (L17). 1.574 M params, 17.80 GFLOPs @1280.
-# 100 epochs, seed 0, recipe v1 (MuSGD lr0 0.01, momentum 0.9, nbs 64, close_mosaic 0), Kaggle T4 batch 8.
+# O-lite test-dev eval J2: olite_s2, ab6_s0, ab6_s1, ab6_s2, olite_trim_s0. Eval only, no training. VisDrone test-dev, headline evaluator (multi-label NMS, max_det 1000, ignore-aware), saves detections for TIDE/density analysis.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
-- train
-train:
-  model: olite_100
-  epochs: 100
-  imgsz: 1280
-  seeds:
-  - 0
-  arch:
-    yaml: models/pra_a20_o2m.yaml
-    head_c3: 64
-    stride_mult: 64
-    lowrank:
-      layers:
-      - 3
-      - 5
-      - 8
-      ratio: 0.5
-    inherit:
-      ranges:
-      - - 0
-        - 6
-        - 0
-      - - 7
-        - 19
-        - 1
-      detect_levels:
-      - 0
-      - 1
-    head_fb: true
-    head_ctx:
-      src: 11
-      dim: 32
-    r12_neck:
-      dysample: 15
-    stack_o:
-      s4: {at: 16, src: 2, guided: true, mid: 32, ch: 64}
-  extra:
-    workers: 8
-    cache: false
-    batch: 8
-    optimizer: MuSGD
-    lr0: 0.01
-    momentum: 0.9
-    close_mosaic: 0
-eval:
-  imgsz:
-  - 1280
-  splits:
-  - valid
+- measure
+measure:
+  split: test
+  latency: false
+  latency_images: 200
+  latency_passes: 2
+  n_warm: 30
+  n_iter: 200
+  models:
+  - {tag: olite_s2, family: ultralytics, ckpt: weights/olite_s2.pt, imgsz: 1280, save_dets: true}
+  - {tag: ab6_s0, family: ultralytics, ckpt: weights/ab6_s0.pt, imgsz: 1280, save_dets: true}
+  - {tag: ab6_s1, family: ultralytics, ckpt: weights/ab6_s1.pt, imgsz: 1280, save_dets: true}
+  - {tag: ab6_s2, family: ultralytics, ckpt: weights/ab6_s2.pt, imgsz: 1280, save_dets: true}
+  - {tag: olite_trim_s0, family: ultralytics, ckpt: weights/olite_trim_s0.pt, imgsz: 1280, save_dets: true}
