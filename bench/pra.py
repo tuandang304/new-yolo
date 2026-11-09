@@ -394,4 +394,9 @@ def make_trainer(arch: dict):
             print(f"[pra] arch={arch} params={n_par / 1e6:.3f}M", flush=True)
             return model
 
+    import json, os
+    os.environ["PRA_ARCH_JSON"] = json.dumps(arch)
+    root = str(Path(__file__).resolve().parents[1])
+    os.environ["PYTHONPATH"] = root + (os.pathsep + os.environ["PYTHONPATH"] if os.environ.get("PYTHONPATH") else "")
+    PRATrainer.__module__ = "bench.pra_ddp"
     return PRATrainer

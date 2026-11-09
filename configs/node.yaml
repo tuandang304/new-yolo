@@ -1,4 +1,4 @@
-# Access-1 ablation AB1 at 100 epochs (paper-grade): keep stride-64 pool. Same optimizer as the Access-1 100-epoch confirm.
+# Access-1 ablation AB1 at 100 epochs (paper-grade): keep stride-64 pool, seed 0. Kaggle 2xT4 DDP (batch 16 total), eval valid + test.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
@@ -55,8 +55,9 @@ train:
     - op: repconv
       layers: [14]
   extra:
-    workers: 8
+    workers: 4
     cache: false
+    device: 0,1
     optimizer: MuSGD
     lr0: 0.01
     momentum: 0.9
@@ -66,3 +67,4 @@ eval:
   - 1280
   splits:
   - valid
+  - test
