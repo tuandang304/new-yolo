@@ -1,6 +1,4 @@
-# Access paper control: plain YOLO26n fine-tuned from COCO at 1280, 100 epochs, seed 0.
-# Optimizer block identical to Access-1 / R9b 100-ep: MuSGD lr0 0.01, momentum 0.9, warmup_bias_lr 0, batch 16,
-# Ultralytics default close_mosaic 10 (NOT the Stack-line recipe v1, which sets close_mosaic 0).
+# Access paper control: plain YOLO26n fine-tuned from COCO at 1280, 100 epochs, seed 0. Kaggle 2xT4 DDP (batch 16 total), eval valid + test.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
@@ -13,9 +11,10 @@ train:
   seeds:
   - 0
   extra:
-    workers: 8
+    workers: 4
     cache: false
     batch: 16
+    device: 0,1
     optimizer: MuSGD
     lr0: 0.01
     momentum: 0.9
@@ -25,3 +24,4 @@ eval:
   - 1280
   splits:
   - valid
+  - test
