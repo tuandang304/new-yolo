@@ -76,7 +76,7 @@ def evaluate_ckpt(tag: str, family: str, ckpt: str, root: Path, imgszs: list[int
                                    "infer_sec": round(time.time() - t0, 1)}
             print(f"[eval] {tag} {key}: {evaluate.fmt(m)} | ignore-aware mAP50_95={mi['mAP50_95']:.2f}", flush=True)
             log_result("eval", {"tag": tag, "split": split, "imgsz": s, "mAP50_95": m["mAP50_95"], "mAP50": m["mAP50"],
-                                "AP_tiny": m["AP_tiny"], "AP_small": m["AP_small"], "ign_mAP50_95": mi["mAP50_95"]})
+                                "AP_tiny": m["AP_tiny"], "AP_small": m["AP_small"], "ign_mAP50_95": mi["mAP50_95"], "ign_mAP50": mi["mAP50"], "ign_AP_tiny": mi["AP_tiny"], "ign_AP_small": mi["AP_small"], "ign_AP_medium": mi["AP_medium"], "ign_AP_large": mi["AP_large"]})
             if split == "test" and s == efficiency_imgsz:
                 test_dets_640 = (gt, ign, dets)
     if qual and test_dets_640 is not None:

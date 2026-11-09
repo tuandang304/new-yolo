@@ -1,3 +1,4 @@
+# Access paper control: plain YOLO26n fine-tuned from COCO at 1280, 100 epochs, seed 1. Kaggle 2xT4 DDP (batch 16 total), eval valid + test.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
@@ -10,9 +11,10 @@ train:
   seeds:
   - 1
   extra:
-    workers: 8
+    workers: 4
     cache: false
     batch: 16
+    device: 0,1
     optimizer: MuSGD
     lr0: 0.01
     momentum: 0.9
@@ -22,3 +24,4 @@ eval:
   - 1280
   splits:
   - valid
+  - test
