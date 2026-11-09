@@ -1,4 +1,4 @@
-# Access T4 measure (test-dev + latency): test-dev AP and FP16 latency at 1280 for Access-1 (3 seeds), YOLO26n@1280 s0, and AB2-AB7. No training.
+# Access paper K-test (Kaggle T4, no training): test-dev of same-recipe YOLO26n s0, public checkpoints, AB1 s1, AB8 s2.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
@@ -11,13 +11,10 @@ measure:
   n_warm: 30
   n_iter: 200
   models:
-  - {tag: access1_s0, family: ultralytics, ckpt: weights/access1_s0.pt, imgsz: 1280, save_dets: true, latency: true}
-  - {tag: access1_s1, family: ultralytics, ckpt: weights/access1_s1.pt, imgsz: 1280, save_dets: true, latency: true}
-  - {tag: access1_s2, family: ultralytics, ckpt: weights/access1_s2.pt, imgsz: 1280, save_dets: true, latency: true}
-  - {tag: yolo26n_1280_s0, family: ultralytics, ckpt: weights/yolo26n_1280_s0.pt, imgsz: 1280, save_dets: true, latency: true}
-  - {tag: ab6_plainconv, family: ultralytics, ckpt: weights/ab6.pt, imgsz: 1280, latency: true}
-  - {tag: ab7_p5, family: ultralytics, ckpt: weights/ab7.pt, imgsz: 1280, latency: true}
-  - {tag: ab2_fullrank, family: ultralytics, ckpt: weights/ab2.pt, imgsz: 1280, latency: true}
-  - {tag: ab3_c3k2, family: ultralytics, ckpt: weights/ab3.pt, imgsz: 1280, latency: true}
-  - {tag: ab4_softmax, family: ultralytics, ckpt: weights/ab4.pt, imgsz: 1280, latency: true}
-  - {tag: ab5_norep, family: ultralytics, ckpt: weights/ab5.pt, imgsz: 1280, latency: true}
+  - {tag: yolo26n_sr_s0, family: ultralytics, ckpt: weights/yolo26n_sr_s0.pt, imgsz: 1280, save_dets: true}
+  - {tag: ab1_s1, family: ultralytics, ckpt: weights/ab1_s1.pt, imgsz: 1280}
+  - {tag: ab8_s2, family: ultralytics, ckpt: weights/ab8_s2.pt, imgsz: 1280}
+  - {tag: pub_yolo26n, family: ultralytics, ckpt: weights/pub_yolo26n.pt, imgsz: 1280}
+  - {tag: pub_yolo11n, family: ultralytics, ckpt: weights/pub_yolo11n.pt, imgsz: 1280}
+  - {tag: pub_yolov10n, family: ultralytics, ckpt: weights/pub_yolov10n.pt, imgsz: 1280}
+  - {tag: rfdetr_nano, family: rfdetr, imgsz: 640, pos_enc: 40}
