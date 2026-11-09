@@ -1183,6 +1183,9 @@ def surgery(model, arch: dict) -> None:
             nn.Sequential(nn.Sequential(DWConv(x, x, k), Conv(x, c3, 1)),
                           nn.Sequential(DWConv(c3, c3, k), Conv(c3, c3, 1)),
                           nn.Conv2d(c3, det.nc, 1)) for x, c3, k in zip(ch, c3s, arch.get("head_k", [3] * len(ch))))
+            nn.Sequential(nn.Sequential(DWConv(x, x, 3), Conv(x, c3, 1)),
+                          nn.Sequential(DWConv(c3, c3, 3), Conv(c3, c3, 1)),
+                          nn.Conv2d(c3, det.nc, 1)) for x, c3 in zip(ch, c3s))
         det.cv3 = lite
         if getattr(det, "one2one_cv3", None) is not None:
             import copy
@@ -1360,6 +1363,9 @@ def make_trainer(arch: dict):
                 assert so.get("s4"), "stack_o.aux needs stack_o.s4"
                 model.__class__ = S4AuxLossModel
                 model.s4_aux = (float(so["aux"].get("w", 0.25)), float(so["aux"].get("max_px", 32)), so["s4"].get("at", 16))
+            if arch.get("access"):  # Access branch: block redesigns built from the inherited tensors
+                from . import access
+                access.apply(model, arch["access"])
             if arch.get("pair_loss"):
                 model.__class__, model.pair_loss = PairLossModel, arch["pair_loss"]
             if arch.get("density_loss"):

@@ -222,6 +222,9 @@ def _run_tasks(cfg: dict, a, root: Path, summary: dict) -> None:
             summary["tpu_probe"] = task_tpu_probe(cfg, root)
         elif task == "parity":
             summary["parity"] = task_parity(cfg, root)
+        elif task == "measure":
+            from . import measure
+            summary["measure"] = measure.run(cfg["measure"], root, OUT)
         elif task == "train":
             seeds = [a.seed] if a.seed is not None else cfg["train"].get("seeds", [0])
             if len(seeds) == 1:
