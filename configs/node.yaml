@@ -1,3 +1,5 @@
+# O-lite ablation AB3 (100 epochs): replace DySample at L15 with standard nearest Upsample x2.
+# 1.573 M params, 17.79 GFLOPs @1280. 100 epochs, seed 0, recipe v1, Kaggle T4 batch 8.
 # Access-1 at 640: the 100-epoch confirm recipe with train imgsz 640; eval at 640 (headline) and 1280.
 # Sci Rep measure: frozen 100-ep checkpoints only, no training, no selection.
 # test-dev AP of CtxGate-YOLO (Stack J, 3 seeds) and the three nano baselines (3 seeds each), then FP16 batch-1
@@ -58,6 +60,11 @@ measure:
   - {tag: rfdetr_nano, family: rfdetr, imgsz: 640, pos_enc: 40, latency: true, save_dets: true}
 - train
 train:
+  model: olite_ab3_nodys
+  epochs: 100
+  imgsz: 1280
+  seeds:
+  - 2
   model: access1_640
   epochs: 100
   imgsz: 640
@@ -163,6 +170,16 @@ eval:
     head_ctx:
       src: 11
       dim: 32
+    stack_o:
+      s4: {at: 16, src: 2, guided: true, mid: 32, ch: 64}
+  extra:
+    workers: 8
+    cache: false
+    batch: 8
+    optimizer: MuSGD
+    lr0: 0.01
+    momentum: 0.9
+    close_mosaic: 0
     r12_neck:
       dysample: 15
     r12_head:

@@ -83,6 +83,14 @@ class DetectBU(_Detect):
         return super().forward(x)
 
 
+def _p3_split(det, x: list) -> list:
+    """Stack P twin P3 (round 14): the P3 input is cat(plain, detail); the head reads only the detail half."""
+    k = getattr(det, "p3_split", 0)
+    if k:
+        x[0] = x[0][:, k:]
+    return x
+
+
 class R11Detect(_Detect):
     """Detect with optional round-11 additions, each a zero contribution at step 0:
     ctx  - stride-64 context (extra last input) projected once, upsampled and added to every classification input;
@@ -90,7 +98,7 @@ class R11Detect(_Detect):
     b2c  - box -> class edge: classification input += b2c(first box-branch conv output)."""
 
     def forward(self, x):
-        x = list(x)
+        x = _p3_split(self, list(x))
         self._ctxf = self.ctx(x.pop()) if getattr(self, "ctx", None) is not None else None
         if getattr(self, "fb", None) is not None:
             f = F.interpolate(self.fb(x[1]), size=x[0].shape[2:], mode="nearest")
@@ -283,6 +291,7 @@ class LowRankConv(nn.Module):
 #   r12_neck: {carafe: [12, 15], hpconcat: [13, 16], updw: 12, upmix: 12, dysample: 15, gated_concat: 16, conv_dw: 18}
 #   r12_head: {br, edge_img, density, scr, route, mona: {pos, split, ctx, edge}, freq, edge_l3, edge_m3, l11gate, pconv_mf, dquery, route_ctx}
 #   density_loss: weight of the normalised auxiliary density MSE (needs r12_head.density)
+#   r12_head.scene: {dim, film, bias, aux} scene vector from GAP(L11) (Stack N); scene_loss: weight of its aux count MSE
 # ----------------------------------------------------------------------------------------------------------------------
 _TAP = {}
 
@@ -546,7 +555,7 @@ class R12Detect(R11Detect):
     """R11Detect plus the optional round-12 head modules (see `_r12_head`). Every addition is zero at step 0."""
 
     def forward(self, x):
-        x = list(x)
+        x = _p3_split(self, list(x))
         raw = x.pop() if getattr(self, "ctx", None) is not None else None
         self._ctxraw = raw
         ctxf = self.ctx(raw) if raw is not None else None
@@ -589,6 +598,11 @@ class R12Detect(R11Detect):
         b2c, ctxf = getattr(self, "b2c", None), getattr(self, "_ctxf", None)
         boxes, scores = [], []
         d0 = None
+        sv = None
+        if o.get("scene") and self._ctxraw is not None:
+            sv = self.sc_mlp(self._ctxraw.float().mean((2, 3))).to(x[0].dtype)
+            if self.training and getattr(self, "sc_aux", None) is not None:
+                self._sc_pred = self.sc_aux(sv)
         for i in range(self.nl):
             xi = x[i]
             ci, bi = xi, xi
@@ -611,6 +625,9 @@ class R12Detect(R11Detect):
                 ci = ci + b2c[i](h0)
             if ctxf is not None:
                 ci = ci + self.ctxo[i](F.interpolate(ctxf, size=size, mode="nearest"))
+            if sv is not None and getattr(self, "sc_film", None) is not None:  # N: scene FiLM
+                g, bt = self.sc_film[i](sv)[:, :, None, None].chunk(2, 1)
+                ci = ci * (1 + torch.tanh(g)) + bt
             if o.get("l11gate") and self._ctxraw is not None:  # J3
                 g = F.interpolate(self.j3[i](self._ctxraw), size=size, mode="bilinear", align_corners=False)
                 ci = ci * (1 + torch.tanh(g))
@@ -638,6 +655,8 @@ class R12Detect(R11Detect):
             if o.get("pconv_mf"):
                 u2 = u2 + self.mf[i](u)
             z = cls_head[i][2](u2)
+            if sv is not None and getattr(self, "sc_bias", None) is not None:  # N: scene prior on logits
+                z = z + self.sc_bias(sv)[:, :, None, None]
             if o.get("scr") and i == 0:  # H3
                 z = z + F.max_pool2d(self.scr(F.interpolate(u, scale_factor=2, mode="nearest")), 2)
             if o.get("dquery") and i == 0:  # M1
@@ -744,6 +763,21 @@ def _r12_surgery(model, arch: dict) -> None:
         det.mona = nn.ModuleList(Mona(c, 16, mo.get("split", False), dctx if mo.get("ctx") else 0, mo.get("edge", False)) for c in c3)
     if o.get("pconv_mf"):
         det.mf = nn.ModuleList(PConvMF(c) for c in c3)
+    if o.get("scene"):  # N: one scene vector per image from global-pooled L11 (stride-64 C2PSA output)
+        sc = o["scene"]
+        assert craw, "scene needs head_ctx (L11 raw features)"
+        d = int(sc.get("dim", 64))
+        det.sc_mlp = nn.Sequential(nn.Linear(craw, d), nn.SiLU(), nn.Linear(d, d), nn.SiLU())
+        if sc.get("film", True):  # per-image, per-channel scale/shift of the cls input; zero init = identity
+            det.sc_film = nn.ModuleList(nn.Linear(d, 2 * c) for c in chx)
+            for m in det.sc_film:
+                nn.init.zeros_(m.weight); nn.init.zeros_(m.bias)
+        if sc.get("bias", True):  # per-image prior on the class logits; zero init
+            det.sc_bias = nn.Linear(d, nc)
+            nn.init.zeros_(det.sc_bias.weight); nn.init.zeros_(det.sc_bias.bias)
+        if sc.get("aux", False):  # training-only head: log(1 + objects per class) of the image
+            det.sc_aux = nn.Linear(d, nc)
+        det._sc_pred = None
     if o.get("scr"):
         det.scr = nn.Sequential(_Conv(c3[0], c3[0], 3, 1, g=c3[0]), zc(c3[0], nc))
     if o.get("dquery"):
@@ -791,11 +825,264 @@ class DensityLoss:
         return loss + self.w * mse * B / loss.numel(), items  # the trainer sums the loss vector
 
 
+class SceneLoss:
+    """Wraps the detection criterion: + w * MSE between the scene head and log(1 + objects per class) of each image."""
+
+    def __init__(self, crit, det, w: float):
+        self.crit, self.det, self.w, self.n = crit, det, w, 0
+
+    def __getattr__(self, name):
+        if name.startswith("__") or name in ("crit", "det", "w", "n"):
+            raise AttributeError(name)
+        return getattr(self.crit, name)
+
+    def __call__(self, preds, batch):
+        loss, items = self.crit(preds, batch)
+        p = getattr(self.det, "_sc_pred", None)
+        if p is None or not self.w:
+            return loss, items
+        B, nc = p.shape
+        t = torch.zeros(B, nc, device=p.device)
+        cls = batch["cls"].to(p.device).long().view(-1)
+        if cls.numel():
+            bi = batch["batch_idx"].to(p.device).long().view(-1)
+            t.index_put_((bi, cls), torch.ones_like(cls, dtype=t.dtype), accumulate=True)
+        mse = F.mse_loss(p.float(), torch.log1p(t))
+        self.n += 1
+        if self.n % 500 == 1:
+            print(f"[pra] scene aux: mse {mse.item():.4f} det_loss/img {loss.sum().item() / B:.3f}", flush=True)
+        self.det._sc_pred = None
+        return loss + self.w * mse * B / loss.numel(), items  # the trainer sums the loss vector
+
+
+class SceneLossModel(_DetectionModel):
+    """DetectionModel whose criterion adds the auxiliary scene-count loss; `scene_loss` is set by the trainer."""
+
+    def init_criterion(self):
+        return SceneLoss(super().init_criterion(), self.model[-1], self.scene_loss)
+
+
 class DensityLossModel(_DetectionModel):
     """DetectionModel whose criterion adds the auxiliary density loss; `density_loss` is set by the trainer."""
 
     def init_criterion(self):
         return DensityLoss(super().init_criterion(), self.model[-1], self.density_loss)
+
+
+# ---- Round 13: Stack O (stack-models/proposals/r13/synthesis.md) ----
+#   stack_o.s4:        {at: 16, src: 2, guided: true, mid: 32, ch: 64}
+#                      O-1: Concat `at` ([top-down stride 8, backbone stride 8]) becomes S4Concat, which also appends
+#                      stem(s4) = 1x1(DW3x3(PixelUnshuffle(s4))) with `ch` channels; the next C3k2's cv1 gets a zero-init
+#                      input slice for it, so the network is exactly the base at step 0.
+#                      O-2 (guided: true): s4 = C3k2-light(cat(up2(1x1(top-down stride 8)), L2)); guided: false uses raw L2.
+#   stack_o.aux:       {w: 0.25, max_px: 32} O-3: training-only centre-heatmap focal loss on s4 for objects whose longer
+#                      side is < max_px input pixels (EGSS-style fixed assignment, no TAL); never evaluated at inference.
+#   stack_o.p3_expand: [4, 17] O-4: one extra C3k(c, c, n=2, e=1.0) appended inside each C3k2; cv2 gets a zero-init slice.
+
+class S4Concat(nn.Module):
+    """[top, b8, s4] -> cat(top, b8, stem(s4')) with s4' = guided(top, s4) or s4. Keeps a training-only aux heatmap of s4'."""
+
+    def __init__(self, c_top: int, c_s4: int, guided: bool, mid: int, ch: int, nc: int, aux: bool):
+        super().__init__()
+        from ultralytics.nn.modules.block import C3k2
+        from ultralytics.nn.modules.conv import DWConv
+        self.d = 1
+        self.guided = guided
+        if guided:
+            self.t = _Conv(c_top, mid, 1, 1)
+            self.g = C3k2(mid + c_s4, c_s4, n=1, c3k=False, e=0.25)
+        self.stem = nn.Sequential(nn.PixelUnshuffle(2), DWConv(4 * c_s4, 4 * c_s4, 3), _Conv(4 * c_s4, ch, 1, 1))
+        self.aux = nn.Conv2d(c_s4, nc, 1) if aux else None
+        if aux:
+            nn.init.constant_(self.aux.bias, -4.6)  # prior 0.01 (RetinaNet): keeps the 8M-cell negative term small at step 0
+        self._aux = None
+
+    def forward(self, x):
+        top, b8, s4 = x
+        if self.guided:
+            s4 = self.g(torch.cat([F.interpolate(self.t(top), scale_factor=2.0, mode="nearest"), s4], 1))
+        if self.aux is not None and self.training:
+            self._aux = self.aux(s4)
+        return torch.cat([top, b8, self.stem(s4)], 1)
+
+
+class TwinC3k2(nn.Module):
+    """Stack P (round 14) twin P3 block: `plain` (= the base P3 C3k2) sees only the first c0 input channels and feeds the
+    bottom-up path to P4; `det` (a COCO-initialised copy, cv1 widened for the stride-4 stem) sees everything and feeds
+    only the P3 head. Output cat(plain, det); TakeFirst at the next layer and Detect.p3_split pick their halves."""
+
+    def __init__(self, plain: nn.Module, det: nn.Module, c0: int):
+        super().__init__()
+        self.plain, self.det, self.c0 = plain, det, c0
+
+    def forward(self, x):
+        return torch.cat([self.plain(x[:, :self.c0]), self.det(x)], 1)
+
+
+class TakeFirst(nn.Module):
+    """Runs `m` on the first `c` channels of its input (the plain half of TwinC3k2)."""
+
+    def __init__(self, m: nn.Module, c: int):
+        super().__init__()
+        self.m, self.c = m, c
+
+    def forward(self, x):
+        return self.m(x[:, :self.c])
+
+
+def _widen_in(conv, extra: int) -> int:
+    """Ultralytics Conv: add `extra` zero-weight input channels at the end. Returns the old input width."""
+    old = conv.conv
+    new = nn.Conv2d(old.in_channels + extra, old.out_channels, old.kernel_size, old.stride, old.padding,
+                    old.dilation, old.groups, old.bias is not None)
+    with torch.no_grad():
+        new.weight.zero_()
+        new.weight[:, :old.in_channels] = old.weight
+    conv.conv = new
+    return old.in_channels
+
+
+def _stack_o_surgery(model, arch: dict) -> None:
+    so = arch.get("stack_o") or {}
+    if not so:
+        return
+    from ultralytics.nn.modules.block import C3k
+    seq, det = model.model, model.model[-1]
+    model._o_widen = []  # (layer, attr, old_in): slices whose COCO part is re-copied after inherit()
+    import copy as _cp
+    twin_at = so.get("twin_p3")  # layer index of the P3 C3k2 (17) or None
+    plain = _cp.deepcopy(seq[twin_at]) if twin_at is not None else None
+    if so.get("s4"):
+        s = so["s4"]
+        at, src = s.get("at", 16), s.get("src", 2)
+        old = seq[at]
+        assert type(old).__name__ == "Concat" and len(old.f) == 2, (at, old)
+        top_src = old.f[0] if old.f[0] != -1 else at - 1
+        ch_of = lambda j: (seq[j].cv2.conv.out_channels if hasattr(seq[j], "cv2") else None)
+        c_top = ch_of(top_src - 1) if ch_of(top_src) is None else ch_of(top_src)  # Upsample/DySample keep channels
+        c_s4, ch = ch_of(src), s.get("ch", 64)
+        new = S4Concat(c_top, c_s4, s.get("guided", True), s.get("mid", 32), ch, det.nc, bool(so.get("aux")))
+        new.i, new.f, new.type = old.i, [*old.f, src], "bench.pra.S4Concat"
+        new.np = sum(p.numel() for p in new.parameters())
+        seq[at] = new
+        model.save = sorted(set(model.save) | {src})
+        nxt = seq[at + 1]
+        model._o_widen.append((at + 1, "det.cv1" if twin_at == at + 1 else "cv1", _widen_in(nxt.cv1, ch)))
+        nxt.np = sum(p.numel() for p in nxt.parameters())
+    if twin_at is not None:
+        det_m = seq[twin_at]
+        c0 = plain.cv1.conv.in_channels
+        cout = plain.cv2.conv.out_channels
+        tw = TwinC3k2(plain, det_m, c0)
+        _set_layer(seq, twin_at, tw, "bench.pra.TwinC3k2")
+        nb = seq[twin_at + 1]
+        assert nb.f == -1, nb.f
+        _set_layer(seq, twin_at + 1, TakeFirst(nb, cout), "bench.pra.TakeFirst")
+        assert det.f[0] == twin_at, det.f
+        det.p3_split = cout
+        model._o_twin = twin_at
+    for i in so.get("p3_expand", []):
+        m = seq[i]
+        assert type(m).__name__ == "C3k2", (i, type(m))
+        m.m.append(C3k(m.c, m.c, n=2, shortcut=True, e=1.0))
+        model._o_widen.append((i, "cv2", _widen_in(m.cv2, m.c)))
+        m.np = sum(p.numel() for p in m.parameters())
+
+
+def stack_o_fix(model, arch: dict, src: str = "yolo26n.pt") -> None:
+    """After inherit(): widened convs missed the shape match; copy their COCO slice and keep the new slice at zero.
+    Twin P3 (Stack P): both halves of TwinC3k2 and the wrapped next layer get the COCO tensors of their source layers."""
+    if not getattr(model, "_o_widen", None) and getattr(model, "_o_twin", None) is None:
+        return
+    import functools
+    from ultralytics.nn.tasks import load_checkpoint
+    w, _ = load_checkpoint(src)
+    sd_src = w.float().state_dict()
+    ranges = (arch.get("inherit") or {}).get("ranges") or [[0, 10 ** 6, 0]]
+    src_of = lambda i: next(i - o for lo, hi, o in ranges if lo <= i - o <= hi)
+    t = getattr(model, "_o_twin", None)
+    if t is not None:
+        n = 0
+        for j, parts in ((t, ("plain", "det")), (t + 1, ("m",))):
+            sj = src_of(j)
+            for part in parts:
+                for k, v in getattr(model.model[j], part).state_dict().items():
+                    sv = sd_src[f"model.{sj}.{k}"]
+                    if v.shape == sv.shape:
+                        v.copy_(sv)
+                        n += 1
+        print(f"[pra] stack_p: twin P3 layer {t} (plain + det) and wrapped layer {t + 1}: {n} COCO tensors", flush=True)
+    for i, attr, old_in in getattr(model, "_o_widen", []):
+        si = src_of(i)
+        conv = functools.reduce(getattr, attr.split("."), model.model[i])
+        attr = attr.split(".")[-1]
+        with torch.no_grad():
+            conv.conv.weight.zero_()
+            conv.conv.weight[:, :old_in] = sd_src[f"model.{si}.{attr}.conv.weight"]
+            for k in ("weight", "bias", "running_mean", "running_var"):
+                getattr(conv.bn, k).copy_(sd_src[f"model.{si}.{attr}.bn.{k}"])
+        print(f"[pra] stack_o: layer {i}.{attr} COCO slice [:, :{old_in}] from model.{si}, "
+              f"new slice [:, {old_in}:{conv.conv.in_channels}] = 0", flush=True)
+
+
+class S4AuxLoss:
+    """Wraps the detection criterion: + w * CenterNet focal loss between the S4Concat aux heatmap and Gaussian centres
+    of GT boxes with longer side < max_px (ellipse sigma = side / 4 in cells, 7x7 support)."""
+
+    def __init__(self, crit, mod, w: float, max_px: float):
+        self.crit, self.mod, self.w, self.max_px, self.n = crit, mod, w, max_px, 0
+
+    def __getattr__(self, name):
+        if name.startswith("__") or name in ("crit", "mod", "w", "max_px", "n"):
+            raise AttributeError(name)
+        return getattr(self.crit, name)
+
+    def __call__(self, preds, batch):
+        loss, items = self.crit(preds, batch)
+        p = getattr(self.mod, "_aux", None)
+        if p is None or not self.w:
+            return loss, items
+        self.mod._aux = None
+        B, nc, H, W = p.shape
+        dev = p.device
+        stride = batch["img"].shape[-1] / W
+        t = torch.zeros(B * nc * H * W, device=dev)
+        bb = batch["bboxes"].to(dev).float()
+        if bb.numel():
+            cls = batch["cls"].to(dev).long().view(-1)
+            bi = batch["batch_idx"].to(dev).long().view(-1)
+            wg, hg = bb[:, 2] * W, bb[:, 3] * H
+            k = torch.maximum(wg, hg) * stride < self.max_px
+            if k.any():
+                cx = (bb[k, 0] * W).floor().long().clamp(0, W - 1)
+                cy = (bb[k, 1] * H).floor().long().clamp(0, H - 1)
+                sx, sy = (wg[k] / 4).clamp(min=0.5), (hg[k] / 4).clamp(min=0.5)
+                o = torch.arange(-3, 4, device=dev)
+                dy, dx = torch.meshgrid(o, o, indexing="ij")
+                dx, dy = dx.reshape(1, -1), dy.reshape(1, -1)
+                xs, ys = cx[:, None] + dx, cy[:, None] + dy
+                val = torch.exp(-(dx ** 2 / (2 * sx[:, None] ** 2) + dy ** 2 / (2 * sy[:, None] ** 2)))
+                ok = (xs >= 0) & (xs < W) & (ys >= 0) & (ys < H)
+                idx = ((bi[k][:, None] * nc + cls[k][:, None]) * H + ys) * W + xs
+                t.scatter_reduce_(0, idx[ok], val[ok], reduce="amax")
+        t = t.view(B, nc, H, W)
+        q = p.float().sigmoid().clamp(1e-4, 1 - 1e-4)
+        pos = t.eq(1.0)
+        pos_l = (torch.log(q) * (1 - q) ** 2)[pos].sum()
+        neg_l = (torch.log(1 - q) * q ** 2 * (1 - t) ** 4)[~pos].sum()
+        fl = -(pos_l + neg_l) / pos.sum().clamp(min=1)
+        self.n += 1
+        if self.n % 500 == 1:
+            print(f"[pra] s4 aux: focal {fl.item():.4f} pos {int(pos.sum())} det_loss/img {loss.sum().item() / B:.3f}", flush=True)
+        return loss + self.w * fl * B / loss.numel(), items  # the trainer sums the loss vector
+
+
+class S4AuxLossModel(_DetectionModel):
+    """DetectionModel whose criterion adds the Stack O stride-4 aux loss; `s4_aux` = (w, max_px, layer) set by the trainer."""
+
+    def init_criterion(self):
+        w, max_px, at = self.s4_aux
+        return S4AuxLoss(super().init_criterion(), self.model[at], w, max_px)
 
 
 def surgery(model, arch: dict) -> None:
@@ -943,6 +1230,7 @@ def surgery(model, arch: dict) -> None:
             for o in det.b2c:
                 _zero_bn(o)
     _r12_surgery(model, arch)
+    _stack_o_surgery(model, arch)
     if hasattr(det, "bias_init"):
         det.bias_init()
     if arch.get("stride_mult"):
@@ -1069,6 +1357,12 @@ def make_trainer(arch: dict):
             if arch.get("init", "yolo26n.pt"):
                 inherit(model, arch, arch.get("init", "yolo26n.pt"))
                 svd_init(model, arch)
+                stack_o_fix(model, arch, arch.get("init", "yolo26n.pt"))
+            so = arch.get("stack_o") or {}
+            if so.get("aux"):
+                assert so.get("s4"), "stack_o.aux needs stack_o.s4"
+                model.__class__ = S4AuxLossModel
+                model.s4_aux = (float(so["aux"].get("w", 0.25)), float(so["aux"].get("max_px", 32)), so["s4"].get("at", 16))
             if arch.get("access"):  # Access branch: block redesigns built from the inherited tensors
                 from . import access
                 access.apply(model, arch["access"])
@@ -1076,6 +1370,8 @@ def make_trainer(arch: dict):
                 model.__class__, model.pair_loss = PairLossModel, arch["pair_loss"]
             if arch.get("density_loss"):
                 model.__class__, model.density_loss = DensityLossModel, float(arch["density_loss"])
+            if arch.get("scene_loss"):
+                model.__class__, model.scene_loss = SceneLossModel, float(arch["scene_loss"])
             n_par = sum(p.numel() for p in model.parameters())
             print(f"[pra] arch={arch} params={n_par / 1e6:.3f}M", flush=True)
             return model

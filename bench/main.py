@@ -36,6 +36,12 @@ def env_info() -> dict:
             info[pkg] = __import__(pkg).__version__
         except Exception as e:  # noqa: BLE001
             info[pkg] = f"n/a ({type(e).__name__})"
+    if not info["commit"]:  # some backends (Colab) do not pass ORX_COMMIT: identify the code by content instead
+        import hashlib
+        h = hashlib.sha256()
+        for f in sorted(p for d in ("bench", "configs", "models", "scripts") for p in Path(d).rglob("*") if p.is_file() and "__pycache__" not in p.parts):
+            h.update(str(f).encode()); h.update(f.read_bytes())
+        info["code_sha256"] = h.hexdigest()[:16]
     try:
         info["mem_GB"] = round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1e9, 1)
     except (ValueError, OSError):
@@ -77,12 +83,12 @@ def evaluate_ckpt(tag: str, family: str, ckpt: str, root: Path, imgszs: list[int
             print(f"[eval] {tag} {key}: {evaluate.fmt(m)} | ignore-aware mAP50_95={mi['mAP50_95']:.2f}", flush=True)
             log_result("eval", {"tag": tag, "split": split, "imgsz": s, "mAP50_95": m["mAP50_95"], "mAP50": m["mAP50"],
                                 "AP_tiny": m["AP_tiny"], "AP_small": m["AP_small"], "ign_mAP50_95": mi["mAP50_95"]})
-            if split == "test" and s == efficiency_imgsz:
-                test_dets_640 = (gt, ign, dets)
+            if s == efficiency_imgsz and (split == "test" or test_dets_640 is None):
+                test_dets_640 = (gt, ign, dets, split)  # test-dev if scored, else val: fixed figure samples either way
     if qual and test_dets_640 is not None:
-        gt, ign, dets = test_dets_640
-        samples = D.figure_samples(root) if len(gt["images"]) >= 64 else sorted(im["file_name"] for im in gt["images"])[:4]
-        res["qualitative"] = qualitative.dump(root, gt, ign, dets, samples, out / "qualitative", tag)["per_image"]
+        gt, ign, dets, qsplit = test_dets_640
+        samples = D.figure_samples(root, split=qsplit) if len(gt["images"]) >= 64 else sorted(im["file_name"] for im in gt["images"])[:4]
+        res["qualitative"] = qualitative.dump(root, gt, ign, dets, samples, out / "qualitative", tag, split=qsplit)["per_image"]
     res["efficiency"] = efficiency.params_flops(pred.torch_module(), efficiency_imgsz)
     if device.startswith("cuda") or device.isdigit():
         sample = str(next((root / "test" / "images").iterdir()))
@@ -157,14 +163,20 @@ def task_train(cfg: dict, root: Path, seed: int, gpu: int) -> dict:
     fam = FAMILY.get(model, "ultralytics")  # proposed architectures (train.arch) are Ultralytics models
     dev = str(gpu) if fam == "ultralytics" else f"cuda:{gpu}"
     train_root = D.masked_train(root) if t.get("mask_ignore") else root  # evaluation always uses the unmasked `root`
+    STAGE["now"] = "train"
     ckpt, info = train(model, train_root, out, epochs, t.get("imgsz", 640), seed, dev, t.get("extra"), t.get("arch"))
     log_result("train", {"model": model, "seed": seed, **info})
     ev = cfg.get("eval", {})
+    STAGE["now"] = "eval"
     res = evaluate_ckpt(f"{model}_s{seed}", fam, ckpt, eval_root(cfg, root), ev.get("imgsz", [640, 1280]),
                         ev.get("splits", ["valid", "test"]), dev if fam == "ultralytics" else f"cuda:{gpu}",
                         out, efficiency_imgsz=t.get("imgsz", 640))
     res["train"] = info
     (out / f"result_{model}_s{seed}.json").write_text(json.dumps(res, indent=2))
+    head = res["metrics"].get(f"valid@{t.get('imgsz', 640)}", {}).get("ignore_aware", {})
+    print("[result] " + json.dumps({"model": model, "seed": seed, "headline_ign_mAP50_95_val": head.get("mAP50_95"),
+                                    "mAP50": head.get("mAP50"), "ckpt": ckpt, "train_hours": info.get("train_hours"),
+                                    "params_M": res.get("efficiency", {}).get("params_M")}), flush=True)
     return res
 
 
@@ -179,7 +191,7 @@ def main() -> None:
         return probe_rfdetr_xla(a.probe_rfdetr_xla)
     cfg = yaml.safe_load(Path(a.config).read_text())
     OUT.mkdir(parents=True, exist_ok=True)
-    print("[cfg] " + json.dumps(cfg), flush=True)
+    print("[config] " + json.dumps(cfg), flush=True)
     info = env_info()
     print("[env] " + json.dumps(info), flush=True)
     (OUT / "env.json").write_text(json.dumps(info, indent=2))
@@ -188,7 +200,21 @@ def main() -> None:
     log_result("data", {"root": str(root), "manifest": json.loads((root / "manifest.json").read_text())["splits"],
                         "prep_sec": round(time.time() - t0, 1)})
     summary: dict = {"config": cfg, "env": info}
+    try:
+        _run_tasks(cfg, a, root, summary)
+    except BaseException as e:  # one grep-able line before the traceback, then re-raise
+        print(f"[fail] stage={STAGE['now']} error={type(e).__name__}: {str(e)[:300]}", flush=True)
+        raise
+    (OUT / ("summary.json" if a.seed is None else f"summary_s{a.seed}.json")).write_text(json.dumps(summary, indent=2, default=str))
+    print(f"=== DONE in {(time.time() - t0) / 60:.1f} min ===", flush=True)
+
+
+STAGE = {"now": "setup"}
+
+
+def _run_tasks(cfg: dict, a, root: Path, summary: dict) -> None:
     for task in cfg["tasks"]:
+        STAGE["now"] = task
         t1 = time.time()
         if task == "data":
             continue
@@ -210,8 +236,6 @@ def main() -> None:
                 if any(summary["train_rc"]):
                     raise SystemExit(f"seed subprocess failed: {summary['train_rc']}")
         print(f"[task] {task} done in {(time.time() - t1) / 60:.1f} min", flush=True)
-    (OUT / ("summary.json" if a.seed is None else f"summary_s{a.seed}.json")).write_text(json.dumps(summary, indent=2, default=str))
-    print(f"=== DONE in {(time.time() - t0) / 60:.1f} min ===", flush=True)
 
 
 if __name__ == "__main__":
