@@ -96,6 +96,67 @@ def latency(m: dict, images: list[np.ndarray], n_warm: int, n_iter: int) -> tupl
     return ts, note
 
 
+def latency_rounds(cfg: dict, rows: list[dict], images: list[np.ndarray], res: dict, path: Path) -> None:
+    """Interleaved timing: `rounds` rounds, model order shuffled per round, each model reloaded and warmed up per round.
+    Per round and model: end-to-end ms (pre + FP16 forward + NMS at conf 0.25) over the val images, and forward-only ms
+    (fixed 1x3xSxS FP16 tensor through the fused network, CUDA events, no NMS). Reports the median of round medians."""
+    import random
+    rng = random.Random(cfg.get("order_seed", 0))
+    n_warm, n_iter, n_rounds = cfg.get("n_warm", 30), cfg.get("n_iter", 200), cfg["rounds"]
+    per = defaultdict(lambda: {"e2e": [], "fwd": [], "e2e_p90": []})
+    for rd in range(n_rounds):
+        order = rows[:]
+        rng.shuffle(order)
+        print(f"[latency] round {rd + 1}/{n_rounds} order={[m['tag'] for m in order]}", flush=True)
+        for m in order:
+            tag = m["tag"]
+            try:
+                ts, note = latency(m, images, n_warm, n_iter)
+                per[tag]["e2e"].append(float(np.median(ts)))
+                per[tag]["e2e_p90"].append(float(np.percentile(ts, 90)))
+                if m["family"] == "ultralytics":
+                    per[tag]["fwd"].append(forward_ms(m, n_warm, n_iter))
+            except Exception as e:  # noqa: BLE001 - one model must not lose the others
+                print(f"[latency] {tag} round {rd + 1} failed: {e!r}", flush=True)
+                res["models"].setdefault(tag, {})["latency_error"] = repr(e)[:300]
+                continue
+            print(f"[latency] r{rd + 1} {tag} e2e={per[tag]['e2e'][-1]:.2f} fwd={per[tag]['fwd'][-1] if per[tag]['fwd'] else float('nan'):.2f} ms", flush=True)
+        for tag, v in per.items():
+            row = res["models"].setdefault(tag, {})
+            for k in ("e2e", "fwd"):
+                if v[k]:
+                    row[f"{k}_round_ms"] = [round(x, 2) for x in v[k]]
+                    row[f"{k}_median_ms"] = round(float(np.median(v[k])), 2)
+                    row[f"{k}_min_ms"], row[f"{k}_max_ms"] = round(min(v[k]), 2), round(max(v[k]), 2)
+            row["e2e_p90_ms"] = round(float(np.median(v["e2e_p90"])), 2)
+        path.write_text(json.dumps(res, indent=1))
+    for tag, row in res["models"].items():
+        print("RESULT " + json.dumps({"kind": "latency_rounds", "tag": tag, "gpu": res["gpu"], **{k: row.get(k) for k in
+              ("e2e_median_ms", "e2e_min_ms", "e2e_max_ms", "e2e_p90_ms", "fwd_median_ms", "fwd_min_ms", "fwd_max_ms")}}), flush=True)
+
+
+def forward_ms(m: dict, n_warm: int, n_iter: int) -> float:
+    """Median forward-only ms of the fused FP16 network that Ultralytics predict() builds, on a fixed square tensor."""
+    pred = load(m, "0", top=300)
+    pred.model.predict(np.zeros((m["imgsz"], m["imgsz"], 3), np.uint8), imgsz=m["imgsz"], conf=0.25, half=True, device=0, verbose=False)
+    net = pred.model.predictor.model  # AutoBackend holding the fused FP16 model
+    x = torch.zeros(1, 3, m["imgsz"], m["imgsz"], device="cuda", dtype=torch.half if net.fp16 else torch.float)
+    ts = []
+    with torch.inference_mode():
+        for _ in range(n_warm):
+            net(x)
+        torch.cuda.synchronize()
+        for _ in range(n_iter):
+            a, b = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+            a.record()
+            net(x)
+            b.record()
+            torch.cuda.synchronize()
+            ts.append(a.elapsed_time(b))
+    free(pred)
+    return float(np.median(ts))
+
+
 def square(im: np.ndarray) -> np.ndarray:
     """Pad an HxWx3 image to a square with gray 114 (the Ultralytics letterbox colour), keeping it top-left."""
     h, w = im.shape[:2]
@@ -147,7 +208,7 @@ def run(cfg: dict, root: Path, out: Path, device: str = "0", limit: int | None =
             print(f"[rfdetr_complexity] failed: {e!r}", flush=True)
         path.write_text(json.dumps(res, indent=1))
 
-    for m in cfg["models"]:
+    for m in (cfg["models"] if cfg.get("ap", True) else []):
         tag, sz = m["tag"], m["imgsz"]
         t0 = time.time()
         MULTI_LABEL["on"] = True
@@ -186,6 +247,9 @@ def run(cfg: dict, root: Path, out: Path, device: str = "0", limit: int | None =
         images = [square(im) for im in images]
     res["latency_input"] = "square (padded before letterbox)" if cfg.get("latency_square") else "rectangular letterbox"
     rows = [m for m in cfg["models"] if m.get("latency")]
+    if cfg.get("rounds"):
+        latency_rounds(cfg, rows, images, res, path)
+        return res
     pooled = defaultdict(list)
     for p in range(cfg.get("latency_passes", 2)):  # two passes in opposite order, to expose drift over the session
         for m in (rows if p % 2 == 0 else rows[::-1]):

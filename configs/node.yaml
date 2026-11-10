@@ -1,4 +1,4 @@
-# Access paper K-val (Kaggle T4, no training): val re-score of same-recipe YOLO26n s0, public checkpoints, one-session latency.
+# T4 latency re-measure (Kaggle T4, no training, no AP): interleaved rounds, end-to-end + forward-only.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
@@ -6,16 +6,17 @@ tasks:
 - measure
 measure:
   split: valid
+  ap: false
+  rounds: 5
+  order_seed: 0
   latency_images: 200
-  latency_passes: 2
   n_warm: 30
   n_iter: 200
   models:
-  - {tag: yolo26n_sr_s0, family: ultralytics, ckpt: weights/yolo26n_sr_s0.pt, imgsz: 1280, save_dets: true, latency: true}
-  - {tag: yolo26n_1280_s0_altrecipe, family: ultralytics, ckpt: weights/yolo26n_1280_s0.pt, imgsz: 1280, latency: true}
   - {tag: access1_s0, family: ultralytics, ckpt: weights/access1_s0.pt, imgsz: 1280, latency: true}
   - {tag: access1_s1, family: ultralytics, ckpt: weights/access1_s1.pt, imgsz: 1280, latency: true}
   - {tag: access1_s2, family: ultralytics, ckpt: weights/access1_s2.pt, imgsz: 1280, latency: true}
+  - {tag: yolo26n_l4_s0, family: ultralytics, ckpt: weights/yolo26n_sr_s0.pt, imgsz: 1280, latency: true}
   - {tag: ab1_s1, family: ultralytics, ckpt: weights/ab1_s1.pt, imgsz: 1280, latency: true}
   - {tag: ab2_fullrank, family: ultralytics, ckpt: weights/ab2.pt, imgsz: 1280, latency: true}
   - {tag: ab3_c3k2, family: ultralytics, ckpt: weights/ab3.pt, imgsz: 1280, latency: true}
