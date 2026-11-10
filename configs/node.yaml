@@ -1,14 +1,21 @@
+# B1: YOLO26n uniformly width-scaled to TrimRes FLOPs (w 0.19), COCO init by channel slicing; same recipe as the L4 control.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: yolo26n
+  model: yolo26n_w019
   epochs: 100
   imgsz: 1280
   seeds:
-  - 1
+  - 0
+  arch:
+    yaml: models/yolo26n_w0.19.yaml
+    init: yolo26n.pt
+    inherit:
+      detect_levels: [0, 1, 2]
+      partial: true
   extra:
     workers: 8
     cache: false

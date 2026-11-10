@@ -108,6 +108,15 @@ def inherit(model, arch: dict, src: str = "yolo26n.pt") -> tuple[int, int]:
                         mapped[f"model.{det_idx}.{lm.group(1)}.{new_l}.{lm.group(3)}"] = v
     sd = model.state_dict()
     ok = {k: v for k, v in mapped.items() if k in sd and sd[k].shape == v.shape}
+    if inh.get("partial"):  # width-scaled model: copy the overlapping channels; class-logit convs (nc 80 -> 10) stay fresh
+        n0 = len(ok)
+        for k, v in mapped.items():
+            if k in sd and k not in ok and sd[k].ndim == v.ndim and not re.search(r"cv3\.\d+\.2\.", k):
+                t = sd[k].clone()
+                cut = tuple(slice(0, min(x, y)) for x, y in zip(t.shape, v.shape))
+                t[cut] = v[cut]
+                ok[k] = t
+        print(f"[pra] partial (channel-sliced) copy of {len(ok) - n0} tensors", flush=True)
     model.load_state_dict(ok, strict=False)
     print(f"[pra] inherited {len(ok)}/{len(sd)} tensors from {src} "
           f"(mapped {len(mapped)}, shape-mismatch {sum(1 for k in mapped if k in sd and sd[k].shape != mapped[k].shape)})",
