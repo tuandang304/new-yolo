@@ -1,6 +1,6 @@
 """Durable training checkpoints on a Modal Volume, so a run cut off with its Colab runtime can resume.
 
-Key = <ORX_EXPERIMENT>/<tag>: a relaunch of the same experiment node finds the files of the lost run.
+Key = <prefix>/<tag>, prefix = ORX_EXPERIMENT when the backend passes it, else PREFIX (Colab forwards only ORX_RUN_ID).
 Uploads weights/last.pt, weights/best.pt and results.csv every `every` epochs and at the end of training.
 Disabled (no-op) when MODAL_TOKEN_ID is not set, so local and other backends behave as before.
 """
@@ -13,11 +13,14 @@ import time
 from pathlib import Path
 
 VOLUME = "orx-ckpt"
+# shortcut: on Colab the key is PREFIX/<model>_s<seed>, unique only among this paper's control and B1/B2 nodes;
+# upgrade to a per-node id once the backend forwards ORX_EXPERIMENT.
+PREFIX = "trimres-2026-11"
 FILES = ("weights/last.pt", "weights/best.pt", "results.csv")
 
 
 def enabled() -> bool:
-    return bool(os.environ.get("MODAL_TOKEN_ID") and os.environ.get("ORX_EXPERIMENT"))
+    return bool(os.environ.get("MODAL_TOKEN_ID"))
 
 
 def _vol():
@@ -30,7 +33,7 @@ def _vol():
 
 
 def key(tag: str) -> str:
-    return f"/{os.environ['ORX_EXPERIMENT']}/{tag}"
+    return f"/{os.environ.get('ORX_EXPERIMENT') or PREFIX}/{tag}"
 
 
 def restore(tag: str, save_dir: Path) -> Path | None:
