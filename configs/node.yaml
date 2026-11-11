@@ -1,14 +1,15 @@
+# Edge baseline yolov10n @1280, same recipe as the TrimRes / YOLO26n control, seed 0.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: yolo26n
+  model: yolov10n
   epochs: 100
   imgsz: 1280
   seeds:
-  - 1
+  - 0
   extra:
     workers: 8
     cache: false

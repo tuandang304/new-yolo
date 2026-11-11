@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-FAMILY = {"yolo26n": "ultralytics", "yolo11n": "ultralytics", "yolov10n": "ultralytics", "rfdetr-nano": "rfdetr"}
+FAMILY = {"yolo26n": "ultralytics", "yolo11n": "ultralytics", "yolov10n": "ultralytics", "yolov9t": "ultralytics", "rfdetr-nano": "rfdetr"}
 
 
 def train(model: str, data_root: Path, out: Path, epochs: int, imgsz: int, seed: int, device: str,
