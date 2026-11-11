@@ -20,7 +20,7 @@ def _iou(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 
 
 def dump(data_root: Path, gt: dict, ignore: dict, dets: list[dict], samples: list[str], out_dir: Path,
-         tag: str, conf_thr: float = 0.3) -> dict:
+         tag: str, conf_thr: float = 0.3, split: str = "test") -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     by_name = {im["file_name"]: im for im in gt["images"]}
     stats = {}
@@ -40,7 +40,7 @@ def dump(data_root: Path, gt: dict, ignore: dict, dets: list[dict], samples: lis
                 tp.append(True)
             else:
                 tp.append(False)
-        img = Image.open(data_root / "test" / "images" / name).convert("RGB")
+        img = Image.open(data_root / split / "images" / name).convert("RGB")
         dr = ImageDraw.Draw(img)
         for x, y, w, h in ignore.get(str(im["id"]), []):
             dr.rectangle([x, y, x + w, y + h], outline=(150, 150, 150), width=1)
