@@ -137,7 +137,9 @@ def make_trainer(arch: dict):
     class PRATrainer(DetectionTrainer):
         def get_model(self, cfg=None, weights=None, verbose=True):
             model = build(arch, nc=self.data["nc"])
-            if arch.get("init", "yolo26n.pt"):
+            if weights is not None:  # resume: the checkpoint replaces the COCO initialisation
+                model.load(weights)
+            elif arch.get("init", "yolo26n.pt"):
                 inherit(model, arch, arch.get("init", "yolo26n.pt"))
             n_par = sum(p.numel() for p in model.parameters())
             print(f"[pra] arch={arch} params={n_par / 1e6:.3f}M", flush=True)
