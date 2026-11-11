@@ -1,3 +1,10 @@
+smoke: false
+data_root: /tmp/visdrone/data
+tasks:
+- data
+- train
+train:
+  model: yolo26n
 # O-lite ablation AB3 (100 epochs): replace DySample at L15 with standard nearest Upsample x2.
 # 1.573 M params, 17.79 GFLOPs @1280. 100 epochs, seed 0, recipe v1, Kaggle T4 batch 8.
 # Access-1 at 640: the 100-epoch confirm recipe with train imgsz 640; eval at 640 (headline) and 1280.
@@ -65,6 +72,10 @@ train:
   imgsz: 1280
   seeds:
   - 2
+  extra:
+    workers: 8
+    cache: false
+    batch: 16
   model: access1_640
   epochs: 100
   imgsz: 640
@@ -199,6 +210,10 @@ eval:
     warmup_bias_lr: 0.0
 eval:
   imgsz:
+  - 1280
+  splits:
+  - valid
+  - test
   - 640
   - 1280
   - 1088

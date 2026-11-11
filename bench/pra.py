@@ -1354,7 +1354,9 @@ def make_trainer(arch: dict):
     class PRATrainer(DetectionTrainer):
         def get_model(self, cfg=None, weights=None, verbose=True):
             model = build(arch, nc=self.data["nc"])
-            if arch.get("init", "yolo26n.pt"):
+            if weights is not None:  # resume: the checkpoint replaces the COCO initialisation
+                model.load(weights)
+            elif arch.get("init", "yolo26n.pt"):
                 inherit(model, arch, arch.get("init", "yolo26n.pt"))
                 svd_init(model, arch)
                 stack_o_fix(model, arch, arch.get("init", "yolo26n.pt"))
