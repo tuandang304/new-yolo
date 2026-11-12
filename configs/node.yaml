@@ -66,3 +66,4 @@ eval:
   - 1280
   splits:
   - valid
+  - test
