@@ -390,6 +390,8 @@ def make_trainer(arch: dict):
                 access.apply(model, arch["access"])
             if arch.get("pair_loss"):
                 model.__class__, model.pair_loss = PairLossModel, arch["pair_loss"]
+            if weights is not None and self.args.resume:  # resume: last.pt replaces the inherited initialisation
+                model.load(weights)
             n_par = sum(p.numel() for p in model.parameters())
             print(f"[pra] arch={arch} params={n_par / 1e6:.3f}M", flush=True)
             return model
