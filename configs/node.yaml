@@ -1,4 +1,4 @@
-# Edge baseline yolov9t @1280, same recipe as the TrimRes / YOLO26n control, seed 0.
+# Edge baseline yolov9t @1280, same recipe as the TrimRes / YOLO26n control, seed 2.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
@@ -9,7 +9,7 @@ train:
   epochs: 100
   imgsz: 1280
   seeds:
-  - 0
+  - 2
   extra:
     workers: 8
     cache: false
