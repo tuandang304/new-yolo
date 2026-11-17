@@ -4,3 +4,7 @@ rfdetr[train]==1.11.2
 pycocotools==2.0.11
 huggingface_hub>=0.34
 pyyaml>=6
+onnx>=1.16
+onnxslim>=0.1.50
+onnxruntime>=1.19
+tensorrt-cu12>=10.3,!=10.1.0
