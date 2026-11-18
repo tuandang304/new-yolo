@@ -224,7 +224,10 @@ def _run_tasks(cfg: dict, a, root: Path, summary: dict) -> None:
             summary["parity"] = task_parity(cfg, root)
         elif task == "measure":
             from . import measure
-            summary["measure"] = measure.run(cfg["measure"], root, OUT)
+            if isinstance(cfg["measure"], list):  # several measure passes (e.g. val, test-dev, latency), one subfolder each
+                summary["measure"] = {m["name"]: measure.run(m, root, OUT / m["name"]) for m in cfg["measure"]}
+            else:
+                summary["measure"] = measure.run(cfg["measure"], root, OUT)
         elif task == "train":
             seeds = [a.seed] if a.seed is not None else cfg["train"].get("seeds", [0])
             if len(seeds) == 1:
