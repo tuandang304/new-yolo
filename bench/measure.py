@@ -221,6 +221,39 @@ def deploy_latency(dcfg: dict, rows: list[dict], images: list[np.ndarray], res: 
             path.write_text(json.dumps(res, indent=1))
         print("RESULT " + json.dumps({"kind": "deploy", "tag": tag, "gpu": res.get("gpu"), "cpu": res["cpu"], **{k: v for k, v in row.items()
               if k.startswith(("trt_", "onnx_cpu_", "peak_mem"))}}), flush=True)
+    if dcfg.get("cpu_rounds"):
+        cpu_rounds(dcfg, rows, images, res, path, exp_dir)
+
+
+def cpu_rounds(dcfg: dict, rows: list[dict], images: list[np.ndarray], res: dict, path: Path, exp_dir: Path) -> None:
+    """ONNX Runtime CPU latency in R rounds; each round shuffles the model order and loads every model anew.
+    Reports the median of the per-round medians (the single-pass value can be distorted by CPU contention)."""
+    import random
+    from ultralytics import YOLO
+    onnx = {}
+    for m in rows:
+        src = exp_dir / f"{m['tag']}.pt"
+        src.write_bytes(Path(m["ckpt"]).read_bytes())
+        onnx[m["tag"]] = YOLO(str(src)).export(format="onnx", imgsz=m["imgsz"], batch=1, simplify=True, opset=dcfg.get("opset", 17), verbose=False)
+    rng = random.Random(dcfg.get("order_seed", 0))
+    per = {m["tag"]: [] for m in rows}
+    for r in range(dcfg["cpu_rounds"]):
+        order = rows[:]
+        rng.shuffle(order)
+        print(f"[cpu] round {r + 1}/{dcfg['cpu_rounds']} order={[m['tag'] for m in order]}", flush=True)
+        for m in order:
+            model = YOLO(onnx[m["tag"]], task="detect")
+            call = lambda im: model.predict(im[..., ::-1].copy(), imgsz=m["imgsz"], conf=0.25, device="cpu", verbose=False)
+            ts = _time_predict(call, images, dcfg.get("cpu_warm", 5), dcfg.get("cpu_iter", 50), False)
+            per[m["tag"]].append(round(float(np.median(ts)), 2))
+            print(f"[cpu] r{r + 1} {m['tag']} median={per[m['tag']][-1]} p90={np.percentile(ts, 90):.1f} ms", flush=True)
+            del model
+            gc.collect()
+    for tag, v in per.items():
+        row = res["models"].setdefault(tag, {})
+        row.update(cpu_round_ms=v, cpu_rounds_median_ms=round(float(np.median(v)), 2), cpu_rounds_min_ms=min(v), cpu_rounds_max_ms=max(v))
+        print("RESULT " + json.dumps({"kind": "cpu_rounds", "tag": tag, "cpu": res.get("cpu"), "median_ms": row["cpu_rounds_median_ms"], "rounds": v}), flush=True)
+    path.write_text(json.dumps(res, indent=1))
 
 
 def forward_ms(m: dict, n_warm: int, n_iter: int) -> float:
