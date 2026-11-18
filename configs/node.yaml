@@ -1,13 +1,12 @@
-# GuideDet-YOLO group ablation (100 epochs, seed 1): remove DySample (L15 nearest), P4->P3 head feedback and the
-# stride-64 context skip together; keeps the guided stride-4 path (O-1 + O-2) and LR-Down (L3/L5/L8).
-# 100 epochs, recipe v1, Kaggle T4 batch 8.
+# Lean GuideDet-YOLO ablation (nopath, 100 epochs, seed 1): remove the guided stride-4 detail path.
+# Lean base = GuideDet-YOLO without DySample, P4->P3 feedback and context skip. Recipe v1, Kaggle T4 batch 8.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: guidedet_grp_s1
+  model: lean_nopath_s1
   epochs: 100
   imgsz: 1280
   seeds:
@@ -34,8 +33,6 @@ train:
       - 0
       - 1
     head_fb: false
-    stack_o:
-      s4: {at: 16, src: 2, guided: true, mid: 32, ch: 64}
   extra:
     workers: 8
     cache: false
