@@ -1,21 +1,13 @@
 # GuideDet-YOLO group ablation eval (Kaggle T4, no training). Salvaged best.pt of the three group-ablation seeds
-# (DySample + P4->P3 feedback + context skip removed together). 1) val and 2) test-dev with the headline evaluator
-# (multi-label NMS, max_det 1000, ignore-aware, maxDets 500); guidedet_s0 is re-scored on val as a consistency check.
-# 3) Table-2 latency protocol in one session for YOLO26n, GuideDet-YOLO, GuideDet-YOLO-F and the group variant (seed 0).
+# (DySample + P4->P3 feedback + context skip removed together). 1) test-dev with the headline evaluator
+# (multi-label NMS, max_det 1000, ignore-aware, maxDets 500). Val was scored inside each training kernel (result_*.json).
+# 2) Table-2 latency protocol in one session for YOLO26n, GuideDet-YOLO, GuideDet-YOLO-F and the group variant (seed 0).
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - measure
 measure:
-- name: val
-  split: valid
-  latency: false
-  models:
-  - {tag: grp_s0, family: ultralytics, ckpt: weights/grp_s0.pt, imgsz: 1280}
-  - {tag: grp_s1, family: ultralytics, ckpt: weights/grp_s1.pt, imgsz: 1280}
-  - {tag: grp_s2, family: ultralytics, ckpt: weights/grp_s2.pt, imgsz: 1280}
-  - {tag: guidedet_s0, family: ultralytics, ckpt: weights/olite_s0.pt, imgsz: 1280}
 - name: test
   split: test
   latency: false
