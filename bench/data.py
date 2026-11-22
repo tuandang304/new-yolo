@@ -93,8 +93,9 @@ def _convert_split(src: Path, out: Path, split: str) -> dict:
             "filelist_sha256": listing}
 
 
-def prepare(root: str | Path, cache: str | Path | None = None) -> Path:
-    """Download + convert VisDrone into `root`. Idempotent (skips when manifest exists)."""
+def prepare(root: str | Path, cache: str | Path | None = None, splits: list[str] | None = None) -> Path:
+    """Download + convert VisDrone into `root`. Idempotent (skips when manifest exists). `splits` limits the download
+    (e.g. ["valid"] for latency-only nodes on a slow link); data.yaml then lists only what exists."""
     root = Path(root)
     if (root / "manifest.json").exists():
         return root
@@ -103,6 +104,8 @@ def prepare(root: str | Path, cache: str | Path | None = None) -> Path:
     raw = root.parent / "visdrone_raw"
     manifest = {"source": ASSETS, "splits": {}}
     for split, name in SPLITS.items():
+        if splits and split not in splits:
+            continue
         z = cache / f"{name}.zip"
         _download(f"{ASSETS}/{name}.zip", z)
         if not (raw / name).exists():

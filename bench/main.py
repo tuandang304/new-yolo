@@ -50,7 +50,7 @@ def env_info() -> dict:
 
 
 def data_root(cfg: dict) -> Path:
-    return D.prepare(cfg.get("data_root", "/tmp/visdrone/data"))
+    return D.prepare(os.path.expanduser(cfg.get("data_root", "/tmp/visdrone/data")), splits=cfg.get("data_splits"))
 
 
 def eval_root(cfg: dict, root: Path) -> Path:

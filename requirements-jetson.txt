@@ -1,0 +1,7 @@
+# Jetson (aarch64, JetPack 7.2): torch/torchvision come from scripts/setup_jetson.sh, TensorRT from the system
+# (python3-libnvinfer), so no onnxruntime / tensorrt-cu12 / rfdetr here.
+ultralytics==8.4.192
+pycocotools==2.0.11
+pyyaml>=6
+onnx>=1.16
+onnxslim>=0.1.50
