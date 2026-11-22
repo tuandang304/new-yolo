@@ -7,3 +7,4 @@ onnx>=1.16
 onnxslim>=0.1.50
 scipy>=1.13  # the system scipy 1.11 (system site-packages) is built for numpy<1.28
 tensorrt-cu13==10.16.1.11  # Ultralytics 8.4.192 requires TensorRT >=10.15,<11 on JetPack 7 (it rejects the system TRT 11.4)
+matplotlib>=3.9  # the system matplotlib (system site-packages) is built for numpy<2; Ultralytics INT8 calibration imports it
