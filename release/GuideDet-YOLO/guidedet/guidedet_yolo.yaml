@@ -1,0 +1,33 @@
+# Base graph of GuideDet-YOLO before module replacement (guidedet/model.py applies the replacements).
+# YOLO26n layers at width 0.25, a 2x average pool (L7) so that L8-L11 run at stride 64, a two-level
+# neck (strides 8 and 16) and a one-to-many Detect head without the one-to-one branch.
+nc: 10
+end2end: false
+reg_max: 1
+scale: n
+scales:
+  n: [0.5, 0.25, 1024]
+backbone:
+  - [-1, 1, Conv, [64, 3, 2]]          # 0  stride 2
+  - [-1, 1, Conv, [128, 3, 2]]         # 1  stride 4
+  - [-1, 2, C3k2, [256, false, 0.25]]  # 2  stride 4 (f2, source of the detail path)
+  - [-1, 1, Conv, [256, 3, 2]]         # 3  stride 8  -> LR-Down
+  - [-1, 2, C3k2, [512, false, 0.25]]  # 4  stride 8 (f4)
+  - [-1, 1, Conv, [512, 3, 2]]         # 5  stride 16 -> LR-Down
+  - [-1, 2, C3k2, [512, true]]         # 6  stride 16
+  - [-1, 1, nn.AvgPool2d, [2, 2]]      # 7  stride 32
+  - [-1, 1, Conv, [1024, 3, 2]]        # 8  stride 64 -> LR-Down
+  - [-1, 2, C3k2, [1024, true]]        # 9
+  - [-1, 1, SPPF, [1024, 5, 3, true]]  # 10
+  - [-1, 2, C2PSA, [1024]]             # 11 stride 64 context (x11)
+head:
+  - [-1, 1, nn.Upsample, [null, 4, nearest]]  # 12
+  - [[-1, 6], 1, Concat, [1]]                 # 13
+  - [-1, 2, C3k2, [512, true]]                # 14 stride 16 top-down
+  - [-1, 1, nn.Upsample, [null, 2, nearest]]  # 15 t (stride 8)
+  - [[-1, 4], 1, Concat, [1]]                 # 16 -> guided detail concat [t, f4, s]
+  - [-1, 2, C3k2, [256, true]]                # 17 stride 8 output x3
+  - [-1, 1, Conv, [256, 3, 2]]                # 18
+  - [[-1, 14], 1, Concat, [1]]                # 19
+  - [-1, 2, C3k2, [512, true]]                # 20 stride 16 output x4
+  - [[17, 20], 1, Detect, [nc]]               # 21

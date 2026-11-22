@@ -1,0 +1,3 @@
+ultralytics==8.4.192
+pycocotools==2.0.11
+# torch / torchvision: any build supported by ultralytics 8.4.192 (checked with torch 2.15 on CPU)

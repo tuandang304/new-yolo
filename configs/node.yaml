@@ -1,26 +1,18 @@
-# Jetson edge study (inference only, seed-0 weights, 1280x1280): power modes 15W / 25W / MAXN_SUPER with clocks fixed,
-# board energy per image from tegrastats VDD_IN, network-only throughput at batch 1/4/8 (FP16), and TensorRT INT8
-# (batch 1, calibrated on 512 random train images) against FP16: latency, energy and AP on val (headline evaluator).
-# Engines are built first, each in a fresh process, and cached in ~/engine-cache. Protocol details: bench/jetson.py.
+# Code-release check on the Jetson: the public GuideDet-YOLO repo (release/GuideDet-YOLO = commit 529c28e of
+# github.com/tuandang304/GuideDet-YOLO before push) run end to end with its own scripts. Inference + 1-epoch smoke
+# training only. Checks: val.py on guidedet_yolo_s0 reproduces the paper's seed-0 AP (val 30.70, test-dev 23.88,
+# +-0.10); benchmark_jetson.py FP16 engine AP matches Supp. Table S3 (30.74, +-0.15). Steps: bench/release.py.
 smoke: false
 data_root: ~/visdrone/data
-data_splits: [train, valid]
+data_splits: [valid]
 tasks:
-- jetson
-jetson:
-  modes: [MAXN_SUPER, 25W, 15W]
-  final_mode: MAXN_SUPER
-  rounds: 3
-  order_seed: 0
-  latency_images: 200
-  n_warm: 30
-  n_iter: 200
-  idle_s: 10
-  batches: [1, 4, 8]
-  precisions: [fp16, int8]
-  calib_images: 512
-  ap: true
-  models:
-  - {tag: yolo26n_s0, ckpt: weights/yolo26n_s0.pt, imgsz: 1280}
-  - {tag: grp_s0, ckpt: weights/grp_s0.pt, imgsz: 1280}
-  - {tag: fullrank_s0, ckpt: weights/fullrank_s0.pt, imgsz: 1280}
+- release
+release:
+  repo: release/GuideDet-YOLO
+  data_root: ~/release-check/visdrone
+  zip_cache: ~/visdrone/visdrone_zips
+  expect_ap: {valid: 30.70, test: 23.88}
+  tol: 0.10
+  expect_trt_fp16: 30.74
+  tol_trt: 0.15
+  train_set: [epochs=1, imgsz=640, batch=2, workers=2, fraction=0.02, plots=False]

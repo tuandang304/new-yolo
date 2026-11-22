@@ -231,6 +231,9 @@ def _run_tasks(cfg: dict, a, root: Path, summary: dict) -> None:
         elif task == "jetson":
             from . import jetson
             summary["jetson"] = jetson.run(cfg["jetson"], root, OUT / "jetson")
+        elif task == "release":
+            from . import release
+            summary["release"] = release.run(cfg["release"], OUT / "release")
         elif task == "train":
             seeds = [a.seed] if a.seed is not None else cfg["train"].get("seeds", [0])
             if len(seeds) == 1:
