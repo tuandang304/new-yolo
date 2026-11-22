@@ -27,9 +27,10 @@ from pathlib import Path
 
 import numpy as np
 
-BUILD = ("import sys; from guidedet import load_yolo; a = sys.argv; "
+BUILD = ("import shutil, sys; from guidedet import load_yolo; a = sys.argv; "
          "kw = dict(int8=True, data=a[4]) if a[3] == 'int8' else dict(half=True); "
-         "load_yolo(a[1]).export(format='engine', imgsz=int(a[2]), batch=1, device=0, simplify=True, verbose=False, **kw)")
+         "f = load_yolo(a[1]).export(format='engine', imgsz=int(a[2]), batch=1, device=0, simplify=True, verbose=False, **kw); "
+         "shutil.move(f, a[5])")
 
 
 def vdd_in_mw(line: str) -> float | None:
@@ -76,9 +77,7 @@ def build(weights: Path, prec: str, imgsz: int, cache: Path, calib: Path | None)
     if eng.exists():
         return eng
     cache.mkdir(parents=True, exist_ok=True)
-    src = eng.with_suffix(".pt")  # export writes <stem>.engine next to its source
-    src.write_bytes(weights.read_bytes())
-    r = subprocess.run([sys.executable, "-c", BUILD, str(src), str(imgsz), prec, str(calib)],
+    r = subprocess.run([sys.executable, "-c", BUILD, str(weights.resolve()), str(imgsz), prec, str(calib), str(eng)],
                        cwd=Path(__file__).resolve().parent, capture_output=True, text=True)
     if r.returncode or not eng.exists():
         print("\n".join((r.stdout + r.stderr).strip().splitlines()[-15:]))

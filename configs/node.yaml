@@ -1,4 +1,4 @@
-# Code-release check on the Jetson: the public GuideDet-YOLO repo (release/GuideDet-YOLO = commit 529c28e of
+# Code-release check on the Jetson: the public GuideDet-YOLO repo (release/GuideDet-YOLO = commit f40fda1 of
 # github.com/tuandang304/GuideDet-YOLO before push) run end to end with its own scripts. Inference + 1-epoch smoke
 # training only. Checks: val.py on guidedet_yolo_s0 reproduces the paper's seed-0 AP (val 30.70, test-dev 23.88,
 # +-0.10); benchmark_jetson.py FP16 engine AP matches Supp. Table S3 (30.74, +-0.15). Steps: bench/release.py.
