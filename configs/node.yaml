@@ -1,6 +1,7 @@
-# SMOKE: TrimRes-YOLO s0 + YOLO26n, 1 round, few iterations, to check TensorRT export of the custom blocks on the Jetson.
-# Full node: same protocol as the T4 node 996c54f9 (5 shuffled rounds, first 200 sorted val images, 30 warm-up, e2e at conf 0.25
-# + forward-only) plus one TensorRT FP16 engine per model, built on the device in a fresh process, and peak memory.
+# TrimRes-YOLO Jetson Orin Nano latency, same protocol as the T4 node 996c54f9: 1280x1280, batch 1, first 200 sorted val images,
+# 30 warm-up, end to end at conf 0.25 + forward-only, 5 rounds with shuffled order (each model reloaded and warmed up per round).
+# PyTorch FP16 rounds, then TensorRT FP16 rounds (one engine per model, built first on the device, each in a fresh process),
+# plus PyTorch FP16 peak memory. MAXN_SUPER + jetson_clocks via scripts/setup_jetson.sh. Smoke run 70934c2c passed (TRT export ok).
 smoke: false
 data_root: ~/visdrone/data
 data_splits: [valid]
@@ -9,12 +10,16 @@ tasks:
 measure:
   split: valid
   ap: false
-  rounds: 1
+  rounds: 5
   order_seed: 0
-  latency_images: 20
-  n_warm: 5
-  n_iter: 20
-  deploy: {prebuild_engines: true, peak_mem: true, trt: true, onnx_cpu: false, n_warm: 5, n_iter: 20}
+  latency_images: 200
+  n_warm: 30
+  n_iter: 200
+  deploy: {prebuild_engines: true, peak_mem: true, trt: true, onnx_cpu: false, rounds: 5, order_seed: 1, n_warm: 30, n_iter: 200}
   models:
   - {tag: access1_s0, family: ultralytics, ckpt: weights/access1_s0.pt, imgsz: 1280, latency: true}
+  - {tag: access1_s1, family: ultralytics, ckpt: weights/access1_s1.pt, imgsz: 1280, latency: true}
+  - {tag: access1_s2, family: ultralytics, ckpt: weights/access1_s2.pt, imgsz: 1280, latency: true}
   - {tag: yolo26n_l4_s0, family: ultralytics, ckpt: weights/yolo26n_sr_s0.pt, imgsz: 1280, latency: true}
+  - {tag: pub_yolov10n, family: ultralytics, ckpt: weights/pub_yolov10n.pt, imgsz: 1280, latency: true}
+  - {tag: ab3_c3k2, family: ultralytics, ckpt: weights/ab3.pt, imgsz: 1280, latency: true}

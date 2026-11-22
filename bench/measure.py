@@ -209,7 +209,7 @@ def deploy_latency(dcfg: dict, rows: list[dict], images: list[np.ndarray], res: 
     for m in rows:
         tag, sz = m["tag"], m["imgsz"]
         row = res["models"].setdefault(tag, {})
-        steps = [s for s in ("peak_mem", "trt", "onnx_cpu") if dcfg.get(s, True)]
+        steps = [s for s in ("peak_mem", "trt", "onnx_cpu") if dcfg.get(s, True) and not (s == "trt" and dcfg.get("rounds"))]
         for step in steps:
             t0 = time.time()
             try:
@@ -245,6 +245,62 @@ def deploy_latency(dcfg: dict, rows: list[dict], images: list[np.ndarray], res: 
             path.write_text(json.dumps(res, indent=1))
         print("RESULT " + json.dumps({"kind": "deploy", "tag": tag, "gpu": res.get("gpu"), "cpu": res["cpu"], **{k: v for k, v in row.items()
               if k.startswith(("trt_", "onnx_cpu_", "peak_mem"))}}), flush=True)
+
+
+def trt_rounds(dcfg: dict, rows: list[dict], images: list[np.ndarray], res: dict, path: Path, out: Path) -> None:
+    """TensorRT FP16 timing in the protocol of latency_rounds: `rounds` rounds, shuffled order, each prebuilt engine reloaded
+    and warmed up per round; end to end (letterbox + forward + NMS at conf 0.25) over the images and forward only (fixed
+    1x3xSxS FP16 tensor through the engine, CUDA events). Reports the median of round medians."""
+    import random
+    from ultralytics import YOLO
+    rng = random.Random(dcfg.get("order_seed", 0))
+    nw, ni, n_rounds = dcfg.get("n_warm", 30), dcfg.get("n_iter", 200), dcfg["rounds"]
+    per = defaultdict(lambda: {"trt": [], "trt_fwd": [], "trt_p90": []})
+    for rd in range(n_rounds):
+        order = rows[:]
+        rng.shuffle(order)
+        print(f"[deploy] trt round {rd + 1}/{n_rounds} order={[m['tag'] for m in order]}", flush=True)
+        for m in order:
+            tag, sz = m["tag"], m["imgsz"]
+            try:
+                eng = out / "exports" / f"{tag}.engine"
+                model = YOLO(str(eng), task="detect")
+                call = lambda im: model.predict(im[..., ::-1].copy(), imgsz=sz, conf=0.25, device=0, verbose=False)
+                ts = _time_predict(call, images, nw, ni, True)
+                per[tag]["trt"].append(float(np.median(ts)))  # kept even if the forward-only timing below fails
+                per[tag]["trt_p90"].append(float(np.percentile(ts, 90)))
+                backend = model.predictor.model  # AutoBackend around the engine, built by the predict calls above
+                x = torch.zeros(1, 3, sz, sz, device="cuda", dtype=torch.half)
+                for _ in range(nw):
+                    backend(x)
+                fw = []
+                for _ in range(ni):
+                    a, b = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+                    a.record(); backend(x); b.record(); torch.cuda.synchronize()
+                    fw.append(a.elapsed_time(b))
+                per[tag]["trt_fwd"].append(float(np.median(fw)))
+                del model, backend
+                gc.collect()
+                torch.cuda.empty_cache()
+            except Exception as e:  # noqa: BLE001 - one model must not lose the others
+                print(f"[deploy] {tag} trt round {rd + 1} failed: {e!r}", flush=True)
+                res["models"].setdefault(tag, {})["trt_error"] = repr(e)[:300]
+                continue
+            print(f"[deploy] r{rd + 1} {tag} trt_e2e={per[tag]['trt'][-1]:.2f} trt_fwd={per[tag]['trt_fwd'][-1]:.2f} ms", flush=True)
+        for tag, v in per.items():
+            row = res["models"].setdefault(tag, {})
+            for k in ("trt", "trt_fwd"):
+                if v[k]:
+                    row[f"{k}_round_ms"] = [round(t, 2) for t in v[k]]
+                    row[f"{k}_median_ms"] = round(float(np.median(v[k])), 2)
+                    row[f"{k}_min_ms"], row[f"{k}_max_ms"] = round(min(v[k]), 2), round(max(v[k]), 2)
+            if v["trt_p90"]:
+                row["trt_p90_ms"] = round(float(np.median(v["trt_p90"])), 2)
+        path.write_text(json.dumps(res, indent=1))
+    for tag in per:
+        row = res["models"][tag]
+        print("RESULT " + json.dumps({"kind": "trt_rounds", "tag": tag, "gpu": res.get("gpu"), **{k: row.get(k) for k in
+              ("trt_median_ms", "trt_min_ms", "trt_max_ms", "trt_p90_ms", "trt_fwd_median_ms", "trt_fwd_min_ms", "trt_fwd_max_ms")}}), flush=True)
 
 
 def forward_ms(m: dict, n_warm: int, n_iter: int) -> float:
@@ -366,6 +422,8 @@ def run(cfg: dict, root: Path, out: Path, device: str = "0", limit: int | None =
         latency_rounds(cfg, rows, images, res, path)
         if cfg.get("deploy"):
             deploy_latency(cfg["deploy"], rows, images, res, path, out)
+            if cfg["deploy"].get("rounds") and cfg["deploy"].get("trt", True):
+                trt_rounds(cfg["deploy"], rows, images, res, path, out)
         return res
     pooled = defaultdict(list)
     for p in range(cfg.get("latency_passes", 2)):  # two passes in opposite order, to expose drift over the session
