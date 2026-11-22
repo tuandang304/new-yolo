@@ -28,7 +28,7 @@ from pathlib import Path
 import numpy as np
 
 BUILD = ("import shutil, sys; from guidedet import load_yolo; a = sys.argv; "
-         "kw = dict(int8=True, data=a[4]) if a[3] == 'int8' else dict(half=True); "
+         "kw = dict(quantize=8, data=a[4]) if a[3] == 'int8' else dict(quantize=16); "
          "f = load_yolo(a[1]).export(format='engine', imgsz=int(a[2]), batch=1, device=0, simplify=True, verbose=False, **kw); "
          "shutil.move(f, a[5])")
 
@@ -67,7 +67,7 @@ def calib_yaml(root: Path, n: int) -> Path:
         if lab.exists():
             (out / "labels" / lab.name).write_text(lab.read_text())
     from guidedet import NAMES
-    y.write_text(f"path: {out.resolve()}\ntrain: images\nval: images\nnames: {json.dumps(dict(enumerate(NAMES)))}\n")
+    y.write_text(f"path: {out.resolve()}\ntrain: images\nval: images\nnames: {json.dumps(NAMES)}\n")
     return y
 
 
