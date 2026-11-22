@@ -97,14 +97,16 @@ def prepare(root: str | Path, cache: str | Path | None = None, splits: list[str]
     """Download + convert VisDrone into `root`. Idempotent (skips when manifest exists). `splits` limits the download
     (e.g. ["valid"] for latency-only nodes on a slow link); data.yaml then lists only what exists."""
     root = Path(root)
-    if (root / "manifest.json").exists():
+    mf = root / "manifest.json"
+    manifest = json.loads(mf.read_text()) if mf.exists() else {"source": ASSETS, "splits": {}}
+    want = [s for s in SPLITS if not splits or s in splits]
+    if all(s in manifest["splits"] for s in want):  # a split-limited root gains missing splits on a later call
         return root
     cache = Path(cache or root.parent / "visdrone_zips")
     cache.mkdir(parents=True, exist_ok=True)
     raw = root.parent / "visdrone_raw"
-    manifest = {"source": ASSETS, "splits": {}}
     for split, name in SPLITS.items():
-        if splits and split not in splits:
+        if split not in want or split in manifest["splits"]:
             continue
         z = cache / f"{name}.zip"
         _download(f"{ASSETS}/{name}.zip", z)

@@ -228,6 +228,9 @@ def _run_tasks(cfg: dict, a, root: Path, summary: dict) -> None:
                 summary["measure"] = {m["name"]: measure.run(m, root, OUT / m["name"]) for m in cfg["measure"]}
             else:
                 summary["measure"] = measure.run(cfg["measure"], root, OUT)
+        elif task == "jetson":
+            from . import jetson
+            summary["jetson"] = jetson.run(cfg["jetson"], root, OUT / "jetson")
         elif task == "train":
             seeds = [a.seed] if a.seed is not None else cfg["train"].get("seeds", [0])
             if len(seeds) == 1:

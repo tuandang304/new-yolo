@@ -1,24 +1,26 @@
-# Jetson Orin Nano TensorRT FP16 latency (embedded column of the deployment table). Same protocol as the T4 node
-# (2e643fb3): seed-0 weights, 1280x1280, batch 1, first 200 sorted val images, 30 warm-up, end to end at conf 0.25.
-# PyTorch FP16 in 5 shuffled rounds + peak memory + one TensorRT FP16 engine per model, built on the device.
-# TensorRT engines are built first, each in a fresh process (equal free memory on the 8 GB board).
-# Power mode MAXN_SUPER with jetson_clocks is set by scripts/setup_jetson.sh. Only the val split is downloaded.
+# Jetson edge study (inference only, seed-0 weights, 1280x1280): power modes 15W / 25W / MAXN_SUPER with clocks fixed,
+# board energy per image from tegrastats VDD_IN, network-only throughput at batch 1/4/8 (FP16), and TensorRT INT8
+# (batch 1, calibrated on 512 random train images) against FP16: latency, energy and AP on val (headline evaluator).
+# Engines are built first, each in a fresh process, and cached in ~/engine-cache. Protocol details: bench/jetson.py.
 smoke: false
 data_root: ~/visdrone/data
-data_splits: [valid]
+data_splits: [train, valid]
 tasks:
-- measure
-measure:
-- name: latency
-  split: valid
-  ap: false
-  rounds: 5
+- jetson
+jetson:
+  modes: [MAXN_SUPER, 25W, 15W]
+  final_mode: MAXN_SUPER
+  rounds: 3
   order_seed: 0
   latency_images: 200
   n_warm: 30
   n_iter: 200
-  deploy: {prebuild_engines: true, peak_mem: true, trt: true, onnx_cpu: false, n_warm: 30, n_iter: 200}
+  idle_s: 10
+  batches: [1, 4, 8]
+  precisions: [fp16, int8]
+  calib_images: 512
+  ap: true
   models:
-  - {tag: yolo26n_s0, family: ultralytics, ckpt: weights/yolo26n_s0.pt, imgsz: 1280, latency: true}
-  - {tag: grp_s0, family: ultralytics, ckpt: weights/grp_s0.pt, imgsz: 1280, latency: true}
-  - {tag: fullrank_s0, family: ultralytics, ckpt: weights/fullrank_s0.pt, imgsz: 1280, latency: true}
+  - {tag: yolo26n_s0, ckpt: weights/yolo26n_s0.pt, imgsz: 1280}
+  - {tag: grp_s0, ckpt: weights/grp_s0.pt, imgsz: 1280}
+  - {tag: fullrank_s0, ckpt: weights/fullrank_s0.pt, imgsz: 1280}
