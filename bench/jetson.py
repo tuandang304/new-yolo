@@ -208,13 +208,13 @@ def run(cfg: dict, root: Path, out: Path) -> dict:
                 rng.shuffle(order)
                 for m in order:
                     for prec in precs:
-                        row = {"mode": mode, "round": rd, "tag": m["tag"], "prec": prec, "kind": "e2e", "batch": 1,
+                        row = {"mode": mode, "round": rd, "tag": m["tag"], "prec": prec, "measure": "e2e", "batch": 1,
                                **e2e(engines[(m["tag"], prec, 1)], m["imgsz"], images, n_warm, n_iter)}
                         res["modes"][mode]["rows"].append(row)
                         result("jetson", **row)
                     for (tag, prec, b), eng in engines.items():
                         if tag == m["tag"]:
-                            row = {"mode": mode, "round": rd, "tag": tag, "prec": prec, "kind": "net", "batch": b, **net(eng, b, m["imgsz"])}
+                            row = {"mode": mode, "round": rd, "tag": tag, "prec": prec, "measure": "net", "batch": b, **net(eng, b, m["imgsz"])}
                             res["modes"][mode]["rows"].append(row)
                             result("jetson", **row)
                     path.write_text(json.dumps(res, indent=1))
