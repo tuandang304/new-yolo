@@ -22,6 +22,10 @@ import torch
 from . import evaluate as E
 from . import predict as P
 
+import logging
+# Ultralytics 8.4 warns on every predict(half=True) call; keep one log line per measurement (compute logging rules).
+logging.getLogger("ultralytics").addFilter(lambda r: "'half' is deprecated" not in r.getMessage())
+
 MULTI_LABEL = {"on": True}
 RF_REPO, RF_FILE = "dronefreak/visdrone-rfdetr-nano", "checkpoint_best_total.pth"
 
