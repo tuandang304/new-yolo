@@ -9,7 +9,7 @@ fi
 # shellcheck disable=SC1091
 source "$VENV/bin/activate"
 python -c "import torch, torchvision" 2>/dev/null || \
-  python -m pip install -q --disable-pip-version-check --progress-bar off torch==2.12.0 torchvision==0.27.0 --index-url https://download.pytorch.org/whl/cu132
+  python -m pip install -q --disable-pip-version-check --progress-bar off "torch==2.12.0+cu132" "torchvision==0.27.0+cu132" --index-url https://download.pytorch.org/whl/cu132
 python -m pip install -q --disable-pip-version-check --progress-bar off -r requirements-jetson.txt
 python -c "import torch, tensorrt; x = torch.randn(256, 256, device='cuda', dtype=torch.half); (x @ x).sum().item(); print('[env] jetson torch', torch.__version__, 'cuda', torch.version.cuda, 'cap', torch.cuda.get_device_capability(0), 'trt', tensorrt.__version__)"
 # The power mode (MAXN_SUPER) is set once by hand: switching it may ask for a reboot. Fail if it is not active.
