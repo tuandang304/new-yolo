@@ -5,3 +5,4 @@ pycocotools==2.0.11
 pyyaml>=6
 onnx>=1.16
 onnxslim>=0.1.50
+scipy>=1.13  # the system scipy 1.11 (system site-packages) is built for numpy<1.28
