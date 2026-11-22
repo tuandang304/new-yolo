@@ -1,6 +1,7 @@
 # Jetson Orin Nano TensorRT FP16 latency (embedded column of the deployment table). Same protocol as the T4 node
 # (2e643fb3): seed-0 weights, 1280x1280, batch 1, first 200 sorted val images, 30 warm-up, end to end at conf 0.25.
 # PyTorch FP16 in 5 shuffled rounds + peak memory + one TensorRT FP16 engine per model, built on the device.
+# TensorRT engines are built first, each in a fresh process (equal free memory on the 8 GB board).
 # Power mode MAXN_SUPER with jetson_clocks is set by scripts/setup_jetson.sh. Only the val split is downloaded.
 smoke: false
 data_root: ~/visdrone/data
@@ -16,7 +17,7 @@ measure:
   latency_images: 200
   n_warm: 30
   n_iter: 200
-  deploy: {peak_mem: true, trt: true, onnx_cpu: false, n_warm: 30, n_iter: 200}
+  deploy: {prebuild_engines: true, peak_mem: true, trt: true, onnx_cpu: false, n_warm: 30, n_iter: 200}
   models:
   - {tag: yolo26n_s0, family: ultralytics, ckpt: weights/yolo26n_s0.pt, imgsz: 1280, latency: true}
   - {tag: grp_s0, family: ultralytics, ckpt: weights/grp_s0.pt, imgsz: 1280, latency: true}

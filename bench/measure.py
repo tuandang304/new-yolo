@@ -175,6 +175,25 @@ def peak_mem_mb(m: dict, images: list[np.ndarray], n: int = 20) -> float:
     return mb
 
 
+def prebuild_engines(rows: list[dict], out: Path) -> None:
+    """Build each TensorRT FP16 engine in its own fresh process, before the timing images and models are loaded, so every
+    engine is built with the same free memory. On an 8 GB Jetson a loaded benchmark process starves the builder, which
+    then skips memory-hungry tactics for some models and not others. deploy_latency reuses the engines built here."""
+    import subprocess
+    import sys
+    exp_dir = out / "exports"
+    exp_dir.mkdir(parents=True, exist_ok=True)
+    code = ("import sys; from bench import pra; from ultralytics import YOLO; "
+            "YOLO(sys.argv[1]).export(format='engine', imgsz=int(sys.argv[2]), half=True, batch=1, device=0, simplify=True, verbose=False)")
+    for m in rows:
+        src = exp_dir / f"{m['tag']}.pt"
+        src.write_bytes(Path(m["ckpt"]).read_bytes())
+        t0 = time.time()
+        r = subprocess.run([sys.executable, "-c", code, str(src), str(m["imgsz"])], cwd=Path(__file__).resolve().parent.parent)
+        ok = r.returncode == 0 and src.with_suffix(".engine").exists()
+        print(f"[deploy] {m['tag']} engine_build={'ok' if ok else f'failed rc={r.returncode}'} ({time.time() - t0:.0f}s)", flush=True)
+
+
 def deploy_latency(dcfg: dict, rows: list[dict], images: list[np.ndarray], res: dict, path: Path, out: Path) -> None:
     """Deployment latency, end to end (letterbox + forward + post-processing at conf 0.25, batch 1), per exported backend:
     `trt`: TensorRT FP16 engine on the GPU; `onnx_cpu`: ONNX Runtime FP32 on the CPU (all cores of the session).
@@ -201,7 +220,8 @@ def deploy_latency(dcfg: dict, rows: list[dict], images: list[np.ndarray], res: 
                     src = exp_dir / f"{tag}.pt"
                     src.write_bytes(Path(m["ckpt"]).read_bytes())  # export writes next to the source file
                     if step == "trt":
-                        f = YOLO(str(src)).export(format="engine", imgsz=sz, half=True, batch=1, device=0, simplify=True, verbose=False)
+                        eng = exp_dir / f"{tag}.engine"  # prebuilt by prebuild_engines when deploy.prebuild_engines is set
+                        f = str(eng) if eng.exists() else YOLO(str(src)).export(format="engine", imgsz=sz, half=True, batch=1, device=0, simplify=True, verbose=False)
                         dev, cuda, nw, ni = 0, True, dcfg.get("n_warm", 30), dcfg.get("n_iter", 200)
                     else:
                         f = YOLO(str(src)).export(format="onnx", imgsz=sz, batch=1, simplify=True, opset=dcfg.get("opset", 17), verbose=False)
@@ -332,6 +352,9 @@ def run(cfg: dict, root: Path, out: Path, device: str = "0", limit: int | None =
 
     if not torch.cuda.is_available() or not cfg.get("latency", True):
         return res
+    dcfg = cfg.get("deploy") or {}
+    if dcfg.get("prebuild_engines") and dcfg.get("trt", True):
+        prebuild_engines([m for m in cfg["models"] if m.get("latency")], out)
     vgt = gt if split == "valid" else json.loads((root / "coco_valid.json").read_text())
     names = sorted(im["file_name"] for im in vgt["images"])[: cfg.get("latency_images", 200)]
     images = [np.asarray(Image.open(root / "valid" / "images" / n).convert("RGB")) for n in names]
