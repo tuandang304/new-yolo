@@ -22,6 +22,10 @@ import torch
 from . import evaluate as E
 from . import predict as P
 
+import logging
+# Ultralytics 8.4 warns on every predict(half=True) call; keep one log line per measurement (compute logging rules).
+logging.getLogger("ultralytics").addFilter(lambda r: "'half' is deprecated" not in r.getMessage())
+
 MULTI_LABEL = {"on": True}
 RF_REPO, RF_FILE = "dronefreak/visdrone-rfdetr-nano", "checkpoint_best_total.pth"
 
@@ -135,6 +139,114 @@ def latency_rounds(cfg: dict, rows: list[dict], images: list[np.ndarray], res: d
               ("e2e_median_ms", "e2e_min_ms", "e2e_max_ms", "e2e_p90_ms", "fwd_median_ms", "fwd_min_ms", "fwd_max_ms")}}), flush=True)
 
 
+def _cpu_name() -> str:
+    try:
+        return next(l.split(":", 1)[1].strip() for l in open("/proc/cpuinfo") if l.startswith("model name"))
+    except Exception:  # noqa: BLE001
+        return "unknown"
+
+
+def _time_predict(call, images, n_warm: int, n_iter: int, cuda: bool) -> list[float]:
+    for i in range(n_warm):
+        call(images[i % len(images)])
+    ts = []
+    for i in range(n_iter):
+        if cuda:
+            torch.cuda.synchronize()
+        t = time.perf_counter()
+        call(images[i % len(images)])
+        if cuda:
+            torch.cuda.synchronize()
+        ts.append((time.perf_counter() - t) * 1e3)
+    return ts
+
+
+def peak_mem_mb(m: dict, images: list[np.ndarray], n: int = 20) -> float:
+    """Peak allocated GPU memory (MB) of PyTorch FP16 batch-1 end-to-end inference, weights included."""
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats()
+    pred = load(m, "0", top=300)
+    for i in range(n):
+        pred.model.predict(images[i % len(images)][..., ::-1].copy(), imgsz=m["imgsz"], conf=0.25, half=True, device=0, verbose=False)
+    torch.cuda.synchronize()
+    mb = torch.cuda.max_memory_allocated() / 2**20
+    free(pred)
+    return mb
+
+
+def prebuild_engines(rows: list[dict], out: Path) -> None:
+    """Build each TensorRT FP16 engine in its own fresh process, before the timing images and models are loaded, so every
+    engine is built with the same free memory. On an 8 GB Jetson a loaded benchmark process starves the builder, which
+    then skips memory-hungry tactics for some models and not others. deploy_latency reuses the engines built here."""
+    import subprocess
+    import sys
+    exp_dir = out / "exports"
+    exp_dir.mkdir(parents=True, exist_ok=True)
+    code = ("import sys; from bench import pra; from ultralytics import YOLO; "
+            "YOLO(sys.argv[1]).export(format='engine', imgsz=int(sys.argv[2]), half=True, batch=1, device=0, simplify=True, verbose=False)")
+    for m in rows:
+        src = exp_dir / f"{m['tag']}.pt"
+        src.write_bytes(Path(m["ckpt"]).read_bytes())
+        t0 = time.time()
+        r = subprocess.run([sys.executable, "-c", code, str(src), str(m["imgsz"])], cwd=Path(__file__).resolve().parent.parent)
+        ok = r.returncode == 0 and src.with_suffix(".engine").exists()
+        print(f"[deploy] {m['tag']} engine_build={'ok' if ok else f'failed rc={r.returncode}'} ({time.time() - t0:.0f}s)", flush=True)
+
+
+def deploy_latency(dcfg: dict, rows: list[dict], images: list[np.ndarray], res: dict, path: Path, out: Path) -> None:
+    """Deployment latency, end to end (letterbox + forward + post-processing at conf 0.25, batch 1), per exported backend:
+    `trt`: TensorRT FP16 engine on the GPU; `onnx_cpu`: ONNX Runtime FP32 on the CPU (all cores of the session).
+    Also peak GPU memory of PyTorch FP16 inference. Each step is isolated so one failure keeps the rest."""
+    from ultralytics import YOLO
+    from . import pra  # noqa: F401  custom modules for unpickling
+    patch_nms()
+    res["cpu"] = _cpu_name()
+    res["cpu_threads"] = torch.get_num_threads()
+    print(f"[deploy] cpu={res['cpu']} threads={res['cpu_threads']}", flush=True)
+    exp_dir = out / "exports"
+    exp_dir.mkdir(parents=True, exist_ok=True)
+    for m in rows:
+        tag, sz = m["tag"], m["imgsz"]
+        row = res["models"].setdefault(tag, {})
+        steps = [s for s in ("peak_mem", "trt", "onnx_cpu") if dcfg.get(s, True)]
+        for step in steps:
+            t0 = time.time()
+            try:
+                if step == "peak_mem":
+                    row["peak_mem_mb"] = round(peak_mem_mb(m, images), 1)
+                    val = row["peak_mem_mb"]
+                else:
+                    src = exp_dir / f"{tag}.pt"
+                    src.write_bytes(Path(m["ckpt"]).read_bytes())  # export writes next to the source file
+                    if step == "trt":
+                        eng = exp_dir / f"{tag}.engine"  # prebuilt by prebuild_engines when deploy.prebuild_engines is set
+                        f = str(eng) if eng.exists() else YOLO(str(src)).export(format="engine", imgsz=sz, half=True, batch=1, device=0, simplify=True, verbose=False)
+                        dev, cuda, nw, ni = 0, True, dcfg.get("n_warm", 30), dcfg.get("n_iter", 200)
+                    else:
+                        f = YOLO(str(src)).export(format="onnx", imgsz=sz, batch=1, simplify=True, opset=dcfg.get("opset", 17), verbose=False)
+                        dev, cuda, nw, ni = "cpu", False, dcfg.get("cpu_warm", 5), dcfg.get("cpu_iter", 50)
+                    model = YOLO(f, task="detect")
+                    call = lambda im: model.predict(im[..., ::-1].copy(), imgsz=sz, conf=0.25, device=dev, verbose=False)
+                    ts = _time_predict(call, images, nw, ni, cuda)
+                    row[f"{step}_median_ms"] = round(float(np.median(ts)), 2)
+                    row[f"{step}_p90_ms"] = round(float(np.percentile(ts, 90)), 2)
+                    row[f"{step}_file_mb"] = round(Path(f).stat().st_size / 2**20, 2)
+                    val = row[f"{step}_median_ms"]
+                    del model
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+            except Exception as e:  # noqa: BLE001 - one backend must not lose the others
+                print(f"[deploy] {tag} {step} failed: {e!r}", flush=True)
+                row[f"{step}_error"] = repr(e)[:300]
+                val = None
+            print(f"[deploy] {tag} {step}={val} ({time.time() - t0:.0f}s)", flush=True)
+            path.write_text(json.dumps(res, indent=1))
+        print("RESULT " + json.dumps({"kind": "deploy", "tag": tag, "gpu": res.get("gpu"), "cpu": res["cpu"], **{k: v for k, v in row.items()
+              if k.startswith(("trt_", "onnx_cpu_", "peak_mem"))}}), flush=True)
+
+
 def forward_ms(m: dict, n_warm: int, n_iter: int) -> float:
     """Median forward-only ms of the fused FP16 network that Ultralytics predict() builds, on a fixed square tensor."""
     pred = load(m, "0", top=300)
@@ -240,6 +352,9 @@ def run(cfg: dict, root: Path, out: Path, device: str = "0", limit: int | None =
 
     if not torch.cuda.is_available() or not cfg.get("latency", True):
         return res
+    dcfg = cfg.get("deploy") or {}
+    if dcfg.get("prebuild_engines") and dcfg.get("trt", True):
+        prebuild_engines([m for m in cfg["models"] if m.get("latency")], out)
     vgt = gt if split == "valid" else json.loads((root / "coco_valid.json").read_text())
     names = sorted(im["file_name"] for im in vgt["images"])[: cfg.get("latency_images", 200)]
     images = [np.asarray(Image.open(root / "valid" / "images" / n).convert("RGB")) for n in names]
@@ -249,6 +364,8 @@ def run(cfg: dict, root: Path, out: Path, device: str = "0", limit: int | None =
     rows = [m for m in cfg["models"] if m.get("latency")]
     if cfg.get("rounds"):
         latency_rounds(cfg, rows, images, res, path)
+        if cfg.get("deploy"):
+            deploy_latency(cfg["deploy"], rows, images, res, path, out)
         return res
     pooled = defaultdict(list)
     for p in range(cfg.get("latency_passes", 2)):  # two passes in opposite order, to expose drift over the session

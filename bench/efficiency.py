@@ -36,14 +36,21 @@ def latency(pred, image_path: str, imgsz: int, n_warm: int = 30, n_iter: int = 2
         except Exception as e:  # noqa: BLE001
             print(f"[latency] inference(fp16) failed: {e!r}", flush=True)
         call = lambda: pred.model.predict(im, threshold=0.25, shape=(imgsz, imgsz), include_source_image=False)
-    for _ in range(n_warm):
-        call()
-    torch.cuda.synchronize()
-    ts = []
-    for _ in range(n_iter):
-        t = time.perf_counter()
-        call()
+    import logging
+    lg = logging.getLogger("ultralytics")
+    lvl = lg.level
+    lg.setLevel(logging.ERROR)  # Ultralytics repeats a "'half' is deprecated" warning on every predict() call (230 lines)
+    try:
+        for _ in range(n_warm):
+            call()
         torch.cuda.synchronize()
-        ts.append((time.perf_counter() - t) * 1e3)
+        ts = []
+        for _ in range(n_iter):
+            t = time.perf_counter()
+            call()
+            torch.cuda.synchronize()
+            ts.append((time.perf_counter() - t) * 1e3)
+    finally:
+        lg.setLevel(lvl)
     return {f"e2e_ms@{imgsz}_median": round(float(np.median(ts)), 2), f"e2e_ms@{imgsz}_p90": round(float(np.percentile(ts, 90)), 2),
             "gpu": torch.cuda.get_device_name(0), "precision": "fp16", "batch": 1}
