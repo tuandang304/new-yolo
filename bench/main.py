@@ -61,9 +61,9 @@ def eval_root(cfg: dict, root: Path) -> Path:
 
 
 def evaluate_ckpt(tag: str, family: str, ckpt: str, root: Path, imgszs: list[int], splits: list[str],
-                  device: str, out: Path, efficiency_imgsz: int = 640, qual: bool = True) -> dict:
+                  device: str, out: Path, efficiency_imgsz: int = 640, qual: bool = True, nms: bool | None = None) -> dict:
     from . import efficiency, evaluate, predict, qualitative
-    pred = predict.load_predictor(family, ckpt, device=device)
+    pred = predict.load_predictor(family, ckpt, device=device, nms=nms)
     res: dict = {"tag": tag, "family": family, "ckpt": ckpt, "metrics": {}}
     out.mkdir(parents=True, exist_ok=True)
     test_dets_640 = None
@@ -172,11 +172,17 @@ def task_train(cfg: dict, root: Path, seed: int, gpu: int) -> dict:
                         ev.get("splits", ["valid", "test"]), dev if fam == "ultralytics" else f"cuda:{gpu}",
                         out, efficiency_imgsz=t.get("imgsz", 640))
     res["train"] = info
+    if ev.get("nms_free"):  # also score the one-to-one head without NMS (end-to-end models)
+        STAGE["now"] = "eval_nms_free"
+        res["nms_free"] = evaluate_ckpt(f"{model}_s{seed}_e2e", fam, ckpt, eval_root(cfg, root), ev.get("imgsz", [640, 1280]),
+                                         ev.get("splits", ["valid", "test"]), dev, out / "nms_free",
+                                         efficiency_imgsz=t.get("imgsz", 640), qual=False, nms=False)["metrics"]
     (out / f"result_{model}_s{seed}.json").write_text(json.dumps(res, indent=2))
     head = res["metrics"].get(f"valid@{t.get('imgsz', 640)}", {}).get("ignore_aware", {})
     print("[result] " + json.dumps({"model": model, "seed": seed, "headline_ign_mAP50_95_val": head.get("mAP50_95"),
                                     "mAP50": head.get("mAP50"), "ckpt": ckpt, "train_hours": info.get("train_hours"),
-                                    "params_M": res.get("efficiency", {}).get("params_M")}), flush=True)
+                                    "params_M": res.get("efficiency", {}).get("params_M"),
+                                    "nms_free_ign_mAP50_95_val": res.get("nms_free", {}).get(f"valid@{t.get('imgsz', 640)}", {}).get("ignore_aware", {}).get("mAP50_95")}), flush=True)
     return res
 
 

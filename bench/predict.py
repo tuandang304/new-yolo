@@ -25,7 +25,8 @@ def _name_map(names) -> dict[int, int]:
 class YoloPredictor:
     family = "ultralytics"
 
-    def __init__(self, ckpt: str, device: str = "cpu", half: bool = False):
+    def __init__(self, ckpt: str, device: str = "cpu", half: bool = False, nms: bool | None = None):
+        nms_flag = nms  # the module import below rebinds the name `nms`
         from ultralytics import YOLO
         import ultralytics.utils.nms as nms
         # predict() has no multi_label argument and defaults to one class per box; Ultralytics val and RF-DETR's
@@ -35,6 +36,8 @@ class YoloPredictor:
             nms.non_max_suppression = lambda *a, **k: orig(*a, **{**k, "multi_label": True})
             nms.non_max_suppression._multi_label = True
         self.model = YOLO(ckpt)
+        if nms_flag is not None:  # nms=False: NMS-free one-to-one head of end-to-end models, for every predict() call
+            self.model.overrides["nms"] = nms_flag
         self.device, self.half = device, half
         self.map = _name_map(self.model.names)
         print(f"[predict] {ckpt}: names={self.model.names} -> map={self.map}", flush=True)
@@ -88,7 +91,10 @@ class RFDETRPredictor:
         return self.model.model.model
 
 
-def load_predictor(family: str, ckpt: str, device: str = "cpu", half: bool = False):
+def load_predictor(family: str, ckpt: str, device: str = "cpu", half: bool = False, nms: bool | None = None):
+    if nms is not None:
+        assert family == "ultralytics", "nms switch applies to Ultralytics models only"
+        return YoloPredictor(ckpt, device, half, nms=nms)
     return {"ultralytics": YoloPredictor, "rfdetr": RFDETRPredictor}[family](ckpt, device, half)
 
 
