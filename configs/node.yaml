@@ -1,19 +1,19 @@
-# GuideDet-YOLO group ablation (100 epochs, seed 0): remove DySample (L15 nearest), P4->P3 head feedback and the
-# stride-64 context skip together; keeps the guided stride-4 path (O-1 + O-2) and LR-Down (L3/L5/L8).
-# 100 epochs, recipe v1, Kaggle T4 batch 8.
+# GuideDet-YOLO (lean) with YOLO26n's default end-to-end head: one-to-many + one-to-one branches trained (end2end: true).
+# Only change vs the group-ablation node: models/pra_a20_o2m.yaml -> models/pra_a20.yaml. Scored on val + test-dev with the
+# headline evaluator twice: one-to-many + multi-label NMS, and NMS-free one-to-one (eval.nms_free). 100 epochs, recipe v1, Kaggle T4 b8.
 smoke: false
 data_root: /tmp/visdrone/data
 tasks:
 - data
 - train
 train:
-  model: guidedet_grp_s0
+  model: guidedet_e2e_s0
   epochs: 100
   imgsz: 1280
   seeds:
   - 0
   arch:
-    yaml: models/pra_a20_o2m.yaml
+    yaml: models/pra_a20.yaml
     head_c3: 64
     stride_mult: 64
     lowrank:
@@ -49,3 +49,5 @@ eval:
   - 1280
   splits:
   - valid
+  - test
+  nms_free: true
