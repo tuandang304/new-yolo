@@ -1,6 +1,6 @@
 # Jetson: NMS-free (one-to-one, end-to-end TopK k=1000 baked into the engine) against NMS (one-to-many + NMS), TensorRT FP16,
 # Orin Nano MAXN_SUPER + jetson_clocks. Latency and board energy for every model (3 shuffled rounds), engine AP on val for
-# every model: YOLO26n NMS s0, GuideDet-YOLO NMS s0, YOLO26n NMS-free s0-2, GuideDet-YOLO end-to-end head NMS-free s0-2.
+# every model: YOLO26n NMS s0-2, GuideDet-YOLO NMS s0-2, YOLO26n NMS-free s0-2, GuideDet-YOLO end-to-end head NMS-free s0-2.
 # The guidedet_e2e weights are best.pt of runs 0a49703e / 8f28d29d / d0b27b1f (pulled from their Kaggle kernels).
 smoke: false
 data_root: ~/visdrone/data
@@ -22,6 +22,10 @@ jetson:
   models:
   - {tag: yolo26n_s0, ckpt: weights/yolo26n_s0.pt, imgsz: 1280}
   - {tag: grp_s0, ckpt: weights/grp_s0.pt, imgsz: 1280}
+  - {tag: yolo26n_s1, ckpt: weights/yolo26n_s1.pt, imgsz: 1280}
+  - {tag: yolo26n_s2, ckpt: weights/yolo26n_s2.pt, imgsz: 1280}
+  - {tag: grp_s1, ckpt: weights/grp_s1.pt, imgsz: 1280}
+  - {tag: grp_s2, ckpt: weights/grp_s2.pt, imgsz: 1280}
   - {tag: yolo26n_e2e_s0, ckpt: weights/yolo26n_s0.pt, imgsz: 1280, nms: false}
   - {tag: yolo26n_e2e_s1, ckpt: weights/yolo26n_s1.pt, imgsz: 1280, nms: false}
   - {tag: yolo26n_e2e_s2, ckpt: weights/yolo26n_s2.pt, imgsz: 1280, nms: false}
