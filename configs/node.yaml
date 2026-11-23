@@ -1,22 +1,30 @@
-# Jetson TensorRT AP for seeds 1 and 2 (inference only, 1280x1280, batch 1): completes Supp. Table S3 to three seeds.
-# FP16 and INT8 engines (INT8 calibrated on the same 512 random train images, seed 0) built on the Orin Nano in MAXN_SUPER
-# with jetson_clocks, scored on val with the headline evaluator. modes: [] skips all timing. Protocol: bench/jetson.py.
+# Jetson: NMS-free (one-to-one, end-to-end TopK k=1000 baked into the engine) against NMS (one-to-many + NMS), TensorRT FP16,
+# Orin Nano MAXN_SUPER + jetson_clocks. Latency and board energy for every model (3 shuffled rounds), engine AP on val for
+# every model: YOLO26n NMS s0, GuideDet-YOLO NMS s0, YOLO26n NMS-free s0-2, GuideDet-YOLO end-to-end head NMS-free s0-2.
+# The guidedet_e2e weights are best.pt of runs 0a49703e / 8f28d29d / d0b27b1f (pulled from their Kaggle kernels).
 smoke: false
 data_root: ~/visdrone/data
 data_splits: [train, valid]
 tasks:
 - jetson
 jetson:
-  modes: []
+  modes: [MAXN_SUPER]
   final_mode: MAXN_SUPER
+  rounds: 3
+  order_seed: 0
+  latency_images: 200
+  n_warm: 30
+  n_iter: 200
+  idle_s: 10
   batches: [1]
-  precisions: [fp16, int8]
-  calib_images: 512
+  precisions: [fp16]
   ap: true
   models:
-  - {tag: yolo26n_s1, ckpt: weights/yolo26n_s1.pt, imgsz: 1280}
-  - {tag: grp_s1, ckpt: weights/grp_s1.pt, imgsz: 1280}
-  - {tag: fullrank_s1, ckpt: weights/fullrank_s1.pt, imgsz: 1280}
-  - {tag: yolo26n_s2, ckpt: weights/yolo26n_s2.pt, imgsz: 1280}
-  - {tag: grp_s2, ckpt: weights/grp_s2.pt, imgsz: 1280}
-  - {tag: fullrank_s2, ckpt: weights/fullrank_s2.pt, imgsz: 1280}
+  - {tag: yolo26n_s0, ckpt: weights/yolo26n_s0.pt, imgsz: 1280}
+  - {tag: grp_s0, ckpt: weights/grp_s0.pt, imgsz: 1280}
+  - {tag: yolo26n_e2e_s0, ckpt: weights/yolo26n_s0.pt, imgsz: 1280, nms: false}
+  - {tag: yolo26n_e2e_s1, ckpt: weights/yolo26n_s1.pt, imgsz: 1280, nms: false}
+  - {tag: yolo26n_e2e_s2, ckpt: weights/yolo26n_s2.pt, imgsz: 1280, nms: false}
+  - {tag: guidedet_e2e_s0, ckpt: weights/guidedet_e2e_s0.pt, imgsz: 1280, nms: false}
+  - {tag: guidedet_e2e_s1, ckpt: weights/guidedet_e2e_s1.pt, imgsz: 1280, nms: false}
+  - {tag: guidedet_e2e_s2, ckpt: weights/guidedet_e2e_s2.pt, imgsz: 1280, nms: false}

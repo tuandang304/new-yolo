@@ -27,6 +27,7 @@ CACHE = Path.home() / "engine-cache"
 REPO = Path(__file__).resolve().parent.parent
 BUILD = ("import sys; from bench import pra; from ultralytics import YOLO; a = sys.argv; "
          "kw = dict(data=a[5]) if a[3] == 'int8' else {}; "
+         "kw.update(dict(nms=False, max_det=1000) if a[6] == 'e2e' else {}); "
          "YOLO(a[1]).export(format='engine', imgsz=int(a[2]), quantize=8 if a[3] == 'int8' else 16, batch=int(a[4]), "
          "device=0, simplify=True, verbose=False, **kw)")
 
@@ -42,7 +43,8 @@ def progress(phase: str, step: int, of: int) -> None:
 def engine_path(m: dict, prec: str, batch: int) -> Path:
     import tensorrt
     sha = hashlib.sha256(Path(m["ckpt"]).read_bytes()).hexdigest()[:10]
-    return CACHE / f"{m['tag']}_{prec}_b{batch}_{m['imgsz']}_{sha}_trt{tensorrt.__version__}.engine"
+    mode = "_e2e" if m.get("nms") is False else ""  # NMS-free one-to-one engine (end-to-end TopK baked in, k=1000)
+    return CACHE / f"{m['tag']}_{prec}_b{batch}_{m['imgsz']}{mode}_{sha}_trt{tensorrt.__version__}.engine"
 
 
 def build(m: dict, prec: str, batch: int, calib: Path | None) -> Path:
@@ -54,7 +56,8 @@ def build(m: dict, prec: str, batch: int, calib: Path | None) -> Path:
     pt = eng.with_suffix(".pt")  # export writes <stem>.engine next to its source
     pt.write_bytes(Path(m["ckpt"]).read_bytes())
     t0 = time.time()
-    r = subprocess.run([sys.executable, "-c", BUILD, str(pt), str(m["imgsz"]), prec, str(batch), str(calib)],
+    r = subprocess.run([sys.executable, "-c", BUILD, str(pt), str(m["imgsz"]), prec, str(batch), str(calib),
+                        "e2e" if m.get("nms") is False else "nms"],
                        cwd=REPO, capture_output=True, text=True)
     text = r.stdout + r.stderr
     ok = r.returncode == 0 and eng.exists()
@@ -147,10 +150,10 @@ def net(eng: Path, batch: int, imgsz: int, min_s: float = 5.0, n_warm: int = 20)
             "mJ": round(pw.watts * total / (batch * n) * 1000, 1), "samples": pw.samples}
 
 
-def ap(eng: Path, imgsz: int, root: Path, gt: dict, ign: dict) -> dict:
+def ap(eng: Path, imgsz: int, root: Path, gt: dict, ign: dict, nms: bool | None = None) -> dict:
     from . import evaluate as E
     from . import predict as P
-    pred = P.load_predictor("ultralytics", str(eng), device="0")
+    pred = P.load_predictor("ultralytics", str(eng), device="0", nms=nms)
     ids = {im["file_name"]: im["id"] for im in gt["images"]}
     paths = [str(root / "valid" / "images" / im["file_name"]) for im in gt["images"]]
     dets = []
@@ -226,7 +229,7 @@ def run(cfg: dict, root: Path, out: Path) -> dict:
         jobs = [(m, p) for m in models for p in precs]
         for i, (m, prec) in enumerate(jobs):
             progress("ap", i, len(jobs))
-            r = ap(engines[(m["tag"], prec, 1)], m["imgsz"], root, gt, ign)
+            r = ap(engines[(m["tag"], prec, 1)], m["imgsz"], root, gt, ign, nms=m.get("nms"))
             res["ap"][f"{m['tag']}/{prec}"] = r
             result("jetson_ap", tag=m["tag"], prec=prec, mode=cfg.get("final_mode", "MAXN_SUPER"), **r)
             path.write_text(json.dumps(res, indent=1))
