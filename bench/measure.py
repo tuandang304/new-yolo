@@ -51,7 +51,7 @@ def load(m: dict, device: str, top: int = 1000):
     if m["family"] == "ultralytics":
         from . import pra  # noqa: F401  registers the custom modules that the proposed checkpoints pickle
         patch_nms()
-        return P.load_predictor("ultralytics", m["ckpt"], device=device)
+        return P.load_predictor("ultralytics", m["ckpt"], device=device, nms=m.get("nms"))
     import rfdetr
     from huggingface_hub import hf_hub_download
     ck = hf_hub_download(RF_REPO, RF_FILE)
@@ -197,7 +197,8 @@ def deploy_latency(dcfg: dict, rows: list[dict], images: list[np.ndarray], res: 
                     src = exp_dir / f"{tag}.pt"
                     src.write_bytes(Path(m["ckpt"]).read_bytes())  # export writes next to the source file
                     if step == "trt":
-                        f = YOLO(str(src)).export(format="engine", imgsz=sz, half=True, batch=1, device=0, simplify=True, verbose=False)
+                        f = YOLO(str(src)).export(format="engine", imgsz=sz, half=True, batch=1, device=0, simplify=True, verbose=False,
+                                                  **({"nms": False} if m.get("nms") is False else {}))  # nms=False: NMS-free one-to-one engine
                         dev, cuda, nw, ni = 0, True, dcfg.get("n_warm", 30), dcfg.get("n_iter", 200)
                     else:
                         f = YOLO(str(src)).export(format="onnx", imgsz=sz, batch=1, simplify=True, opset=dcfg.get("opset", 17), verbose=False)
